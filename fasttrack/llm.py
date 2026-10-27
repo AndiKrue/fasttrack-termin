@@ -2,7 +2,7 @@
 # Copyright (C) 2026 Andreas Krueger
 """Nemotron through the NVIDIA API (OpenAI-compatible), one model per role.
 
-planner  - decides which questions to ask the sources (largest model, reasoning on)
+planner  - decides which questions to ask the sources (Super 120B)
 sql      - turns each question into one read-only SELECT over the federated schema
 answer   - ranks the routes and explains why, citing evidence ids only
 verifier - checks every claim against the cited rows and strikes the unsupported ones
@@ -19,9 +19,9 @@ import httpx
 
 BASE = os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
 MODELS = {
-    "planner": os.environ.get("FT_MODEL_PLANNER", "nvidia/nemotron-3-ultra-550b-a55b"),
+    "planner": os.environ.get("FT_MODEL_PLANNER", "nvidia/nemotron-3-super-120b-a12b"),
     "sql": os.environ.get("FT_MODEL_SQL", "nvidia/nemotron-3.5-lightning-30b-a3b"),
-    "answer": os.environ.get("FT_MODEL_ANSWER", "nvidia/nemotron-3-ultra-550b-a55b"),
+    "answer": os.environ.get("FT_MODEL_ANSWER", "nvidia/nemotron-3-super-120b-a12b"),
     "verifier": os.environ.get("FT_MODEL_VERIFIER", "nvidia/nemotron-3.5-lightning-30b-a3b"),
 }
 
@@ -43,6 +43,7 @@ class Nemotron:
             "max_tokens": max_tokens,
         }
         r = self.http.post("/chat/completions", json=body, headers={"Authorization": f"Bearer {self.key}"})
+        print(f"[nemotron] {role} {MODELS[role]} -> {r.status_code} in {time.monotonic() - started:.1f}s", flush=True)
         r.raise_for_status()
         data = r.json()
         usage = data.get("usage") or {}
