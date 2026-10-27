@@ -111,6 +111,7 @@ https://github.com/AndiKrue/fasttrack-termin
 
 ## Implementation references
 
+- [Sponsor technology: files, configuration, fallbacks and judge inspection](SPONSORS.md)
 - [Agent loop and verifier](../fasttrack/agent.py)
 - [Zetaris JDBC and local source selection](../fasttrack/sources.py)
 - [Zetaris registration](../zetaris/register.py)
