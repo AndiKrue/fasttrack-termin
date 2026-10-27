@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FastTrack Termin</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="hero">
+  <div class="wrap">
+    <div class="brand"><span class="logo" aria-hidden="true">+</span> FastTrack Termin</div>
+    <h1>The fastest route to a specialist appointment in Berlin, with the reasons behind every step.</h1>
+    <p class="sub">For statutory-insurance patients. Nemotron plans and verifies, Zetaris federates the rules and practice data, Firecrawl finds real practices, Meterless H-MEM remembers what was verified.</p>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="card ask" aria-label="Your question">
+    <label for="q" class="label">Describe your situation</label>
+    <textarea id="q" rows="3">I live in Köpenick, have knee pain for three weeks and a referral from my GP without urgency code. How do I get an orthopaedics appointment fastest?</textarea>
+    <div class="chips" id="examples" aria-label="Examples"></div>
+    <div class="actions">
+      <button id="go" class="primary">Find the fastest route</button>
+      <button id="locate" class="ghost" type="button">Use my location</button>
+      <span id="locstate" class="muted"></span>
+    </div>
+  </section>
+
+  <section id="progress" class="card hidden" aria-live="polite">
+    <h2>Working on it</h2>
+    <ol id="steps" class="timeline"></ol>
+  </section>
+
+  <section id="results" aria-live="polite"></section>
+</main>
+
+<footer class="wrap foot">
+  <p id="runinfo" class="muted"></p>
+  <p class="muted">Not medical advice. Emergencies: <strong>112</strong>. On-call service: 116117.</p>
+  <p class="muted">Practices and waiting times in the FT_* tables are SAMPLE data; web rows link their source.</p>
+</footer>
+<script src="/static/app.js"></script>
+</body>
+</html>

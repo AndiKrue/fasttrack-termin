@@ -1,0 +1,198 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Andreas Krueger -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>FastTrack Termin</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{--bg:#fff;--fg:#1d2433;--hint:#6b7280;--link:#2563eb;--btn:#2563eb;--btn-fg:#fff;--card:#f3f5f9;--line:#d6dce8}
+*{box-sizing:border-box}
+body{margin:0;padding:12px 14px 90px;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,-apple-system,sans-serif}
+h1{font-size:1.25rem;margin:.2rem 0 .3rem}
+.muted{color:var(--hint);font-size:.85rem}
+textarea{width:100%;min-height:5.5rem;font:inherit;padding:.6rem;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--fg)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:.5rem 0}
+.chip{border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:999px;padding:.3rem .7rem;font:inherit;font-size:.82rem;cursor:pointer}
+button.act{border:0;border-radius:10px;padding:.55rem .8rem;font:inherit;font-size:.88rem;background:var(--btn);color:var(--btn-fg);cursor:pointer}
+button.ghost{background:var(--card);color:var(--fg);border:1px solid var(--line)}
+#fallback{width:100%;margin-top:.4rem;padding:.75rem;font-size:1rem}
+.timeline{list-style:none;padding:0;margin:.8rem 0}
+.timeline li{display:flex;gap:.5rem;align-items:baseline;padding:.25rem 0;color:var(--hint)}
+.timeline li.done{color:var(--fg)}
+.timeline li.run .dot{animation:pulse 1s infinite}
+.dot{width:.6rem;height:.6rem;border-radius:50%;background:var(--line);flex:none;transform:translateY(-1px)}
+.done .dot{background:#16a34a}.run .dot{background:var(--btn)}.fail .dot{background:#dc2626}
+@keyframes pulse{50%{opacity:.3}}
+@media (prefers-reduced-motion:reduce){.timeline li.run .dot{animation:none}}
+.card{border:1px solid var(--line);border-radius:12px;padding:.8rem;margin:.7rem 0;background:var(--bg)}
+.card h3{margin:0 0 .3rem;font-size:1rem}
+.days{font-weight:600}
+.row{display:flex;flex-wrap:wrap;gap:6px;margin-top:.5rem}
+details{margin-top:.4rem}summary{cursor:pointer;color:var(--link);font-size:.85rem}
+pre{white-space:pre-wrap;word-break:break-word;background:var(--card);padding:.5rem;border-radius:8px;font-size:.78rem;margin:.3rem 0}
+a{color:var(--link)}
+.err{color:#dc2626}
+footer{margin-top:1.2rem}
+</style>
+</head>
+<body>
+<h1>FastTrack Termin</h1>
+<p class="muted">Fastest route to a specialist appointment in Berlin for statutory-insurance patients, with the reason and the evidence for each step.</p>
+<label for="q" class="muted">Your situation</label>
+<textarea id="q">I live in Köpenick, have knee pain for three weeks and a referral from my GP without urgency code. How do I get an orthopaedics appointment fastest?</textarea>
+<div class="chips" id="chips"></div>
+<button class="act" id="fallback" hidden>Find fastest route</button>
+<ul class="timeline" id="timeline" hidden></ul>
+<div id="out" aria-live="polite"></div>
+<footer class="muted">
+<p>Practices and waiting times in the demo database are SAMPLE data; web results link their source. Not medical advice. In an emergency call 112.</p>
+</footer>
+<script>
+"use strict";
+const tg = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData !== undefined ? window.Telegram.WebApp : null;
+const inTelegram = !!(tg && tg.platform && tg.platform !== "unknown");
+const $ = (id) => document.getElementById(id);
+function el(tag, text, cls) { const e = document.createElement(tag); if (text !== undefined && text !== null) e.textContent = String(text); if (cls) e.className = cls; return e; }
+
+// Theme: Telegram colors when available, light defaults in a normal browser.
+if (tg) {
+  tg.ready(); tg.expand();
+  const t = tg.themeParams || {}, r = document.documentElement.style;
+  const map = { "--bg": t.bg_color, "--fg": t.text_color, "--hint": t.hint_color, "--link": t.link_color, "--btn": t.button_color, "--btn-fg": t.button_text_color, "--card": t.secondary_bg_color };
+  for (const [k, v] of Object.entries(map)) if (v) r.setProperty(k, v);
+}
+
+const EXAMPLES = [
+  "Köpenick, knee pain for three weeks, GP referral without urgency code. Fastest orthopaedics appointment?",
+  "Friedrichshain, skin rash for two months, no referral. How do I see a dermatologist soon?",
+  "Mitte, my GP gave me an urgent referral (Dringlichkeitscode) for cardiology. What now?",
+];
+for (const ex of EXAMPLES) { const c = el("button", ex.split(",")[0] + " …", "chip"); c.type = "button"; c.title = ex; c.onclick = () => { $("q").value = ex; }; $("chips").append(c); }
+
+function openLink(url) { if (inTelegram && /^https?:/.test(url)) tg.openLink(url); else window.open(url, "_blank", "noopener"); }
+function call(phone) { const tel = "tel:" + phone.replace(/[^\d+]/g, ""); location.href = tel; }
+
+// Timeline: one row per agent step, marked running/done from the NDJSON stream.
+const STEPS = [["plan", "Planning"], ["query", "Zetaris sources"], ["web", "Web search"], ["recall", "Memory (H-MEM)"], ["verify", "Verify"]];
+function resetTimeline() {
+  const ul = $("timeline"); ul.replaceChildren(); ul.hidden = false;
+  STEPS.forEach(([key, label], i) => { const li = el("li", undefined, i === 0 ? "run" : ""); li.dataset.step = key; li.append(el("span", undefined, "dot"), el("span", label), el("span", "", "muted")); ul.append(li); });
+}
+function markStep(step) {
+  const items = [...$("timeline").children], idx = items.findIndex((li) => li.dataset.step === step.step);
+  if (idx < 0) return;
+  const li = items[idx], info = li.lastChild;
+  li.className = step.error ? "fail" : "done";
+  if (step.step === "plan") info.textContent = (step.questions || []).length + " questions";
+  if (step.step === "query") info.textContent = (step.queries || []).filter((q) => !q.error).length + "/" + (step.queries || []).length + " queries";
+  if (step.step === "web") info.textContent = step.error ? "skipped" : (step.practices || 0) + " practices";
+  if (step.step === "recall") info.textContent = (step.records || 0) + " records";
+  if (step.step === "verify") info.textContent = (step.kept || 0) + " kept, " + (step.dropped || 0) + " dropped";
+  for (let j = 0; j < idx; j++) if (!items[j].className) items[j].className = "done";
+  if (items[idx + 1] && !items[idx + 1].className) items[idx + 1].className = "run";
+}
+
+// Distance: Telegram LocationManager when present, else browser geolocation; addresses via Nominatim, one per second.
+let here = null;
+function getLocation() {
+  return new Promise((resolve) => {
+    const lm = tg && tg.LocationManager;
+    if (lm && lm.init) {
+      lm.init(() => { if (!lm.isLocationAvailable) return browserLoc(resolve); lm.getLocation((loc) => resolve(loc ? { lat: loc.latitude, lon: loc.longitude } : null)); });
+    } else browserLoc(resolve);
+  });
+}
+function browserLoc(resolve) {
+  if (!navigator.geolocation) return resolve(null);
+  navigator.geolocation.getCurrentPosition((p) => resolve({ lat: p.coords.latitude, lon: p.coords.longitude }), () => resolve(null), { timeout: 10000 });
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function geocode(address) {
+  const r = await fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&q=" + encodeURIComponent(address), { headers: { "Accept-Language": "de" } });
+  const j = await r.json(); return j[0] ? { lat: +j[0].lat, lon: +j[0].lon } : null;
+}
+function km(a, b) { const R = 6371, d = (x) => x * Math.PI / 180, dl = d(b.lat - a.lat), dn = d(b.lon - a.lon); const h = Math.sin(dl / 2) ** 2 + Math.cos(d(a.lat)) * Math.cos(d(b.lat)) * Math.sin(dn / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(h)); }
+async function fillDistances(targets) {
+  if (!targets.length) return;
+  here = here || await getLocation();
+  if (!here) { targets.forEach(([, span]) => { span.textContent = "location not shared"; }); return; }
+  for (const [address, span] of targets) {
+    try { const p = await geocode(address); span.textContent = p ? km(here, p).toFixed(1) + " km away" : "address not found"; } catch { span.textContent = "distance unavailable"; }
+    await sleep(1100); // Nominatim usage policy: at most one request per second
+  }
+}
+
+function render(result) {
+  const out = $("out"); out.replaceChildren();
+  if (!result.routes || !result.routes.length) out.append(el("p", "No route could be backed by evidence for this question.", "muted"));
+  const geoTargets = [];
+  result.routes.forEach((x, i) => {
+    const card = el("div", undefined, "card");
+    card.append(el("h3", (i + 1) + ". " + x.route));
+    if (x.expected_days !== null && x.expected_days !== undefined) card.append(el("div", "Expected: about " + x.expected_days + " days", "days"));
+    card.append(el("p", "Why: " + x.why));
+    const actions = el("div", undefined, "row");
+    const seen = new Set();
+    for (const id of x.evidence || []) {
+      const ev = result.evidence[id]; if (!ev) continue;
+      const row = Object.fromEntries(Object.entries(ev.row || {}).map(([k, v]) => [k.toLowerCase(), v])); // Zetaris may upper-case column names
+      const table = ((ev.sql || "").match(/\bFROM\s+([\w.]+)/i) || [])[1] || "sql";
+      const det = el("details"); det.append(el("summary", id + " · " + (ev.url ? "web" : table)));
+      det.append(el("pre", ev.sql), el("pre", JSON.stringify(row, null, 1)));
+      card.append(det);
+      if (ev.url && !seen.has(ev.url)) { seen.add(ev.url); const b = el("button", "Source", "act ghost"); b.type = "button"; b.onclick = () => openLink(ev.url); actions.append(b); }
+      if (row.phone && !seen.has("tel" + row.phone)) { seen.add("tel" + row.phone); const b = el("button", "Call " + row.phone, "act"); b.type = "button"; b.onclick = () => call(row.phone); actions.append(b); }
+      if (row.address && !seen.has("adr" + row.address)) {
+        seen.add("adr" + row.address);
+        const b = el("button", "Route", "act ghost"); b.type = "button";
+        b.onclick = () => openLink("https://www.openstreetmap.org/directions?to=" + encodeURIComponent(row.address));
+        const dist = el("span", "…", "muted");
+        actions.append(b, dist); geoTargets.push([row.address, dist]);
+      }
+    }
+    if (actions.children.length) card.append(actions);
+    out.append(card);
+  });
+  (result.caveats || []).forEach((c) => out.append(el("p", "Note: " + c, "muted")));
+  out.append(el("p", "Run " + result.run_id + " · " + result.trace.source + " · web " + (result.trace.web || "off") + " · " + result.trace.memory + " · " + (result.model_calls || []).length + " Nemotron calls", "muted"));
+  fillDistances(geoTargets);
+}
+
+let busy = false;
+async function ask() {
+  const question = $("q").value.trim();
+  if (busy || !question) return;
+  busy = true; $("out").replaceChildren(); resetTimeline();
+  if (inTelegram) tg.MainButton.showProgress(); else $("fallback").disabled = true;
+  try {
+    const r = await fetch("/ask/stream", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question }) });
+    const reader = r.body.getReader(), dec = new TextDecoder(); let buf = "";
+    for (;;) {
+      const { value, done } = await reader.read(); if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+        if (!line) continue;
+        const msg = JSON.parse(line);
+        if (msg.step) markStep(msg.step);
+        if (msg.result) { render(msg.result); if (inTelegram) tg.HapticFeedback.notificationOccurred("success"); }
+        if (msg.error) { $("out").replaceChildren(el("p", "Error: " + msg.error, "err")); if (inTelegram) tg.HapticFeedback.notificationOccurred("error"); }
+      }
+    }
+  } catch (e) {
+    $("out").replaceChildren(el("p", "Error: " + e.message, "err"));
+  } finally {
+    busy = false;
+    if (inTelegram) tg.MainButton.hideProgress(); else $("fallback").disabled = false;
+  }
+}
+
+if (inTelegram) { tg.MainButton.setText("Find fastest route"); tg.MainButton.onClick(ask); tg.MainButton.show(); }
+else { $("fallback").hidden = false; $("fallback").onclick = ask; }
+</script>
+</body>
+</html>
