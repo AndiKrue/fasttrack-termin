@@ -44,7 +44,12 @@ h2 { font-size: 1.1rem; margin: 0 0 12px; }
 .timeline li.done .dot { background: var(--green); border-color: var(--green); }
 .timeline li.failed .dot { background: var(--warn); border-color: var(--warn); }
 .timeline .title { font-weight: 600; }
-.timeline .detail { color: var(--muted); font-size: .88rem; }
+.timeline .detail { color: var(--muted); font-size: .88rem; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+#progress.compact .timeline { display: none; }
+#progress.compact h2 { margin: 0; font-size: 1rem; cursor: pointer; }
+#progress.compact h2::before { content: "✓ "; color: var(--green); }
+#progress h2[role=button]:focus-visible { outline: 2px solid var(--blue); outline-offset: 4px; }
+.route { scroll-margin-top: 16px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .route { position: relative; padding-left: 64px; }

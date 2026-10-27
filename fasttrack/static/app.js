@@ -117,7 +117,28 @@ function resetTimeline() {
     ol.append(li);
   }
   setActive("plan");
-  $("progress").classList.remove("hidden");
+  const prog = $("progress");
+  prog.classList.remove("hidden", "compact");
+  prog.querySelector("h2").textContent = "Working on it";
+  prog.dataset.started = String(Date.now());
+}
+
+// After the answer, the timeline folds to one line so the routes sit right below the question.
+function foldTimeline() {
+  const prog = $("progress");
+  const secs = Math.round((Date.now() - Number(prog.dataset.started || Date.now())) / 1000);
+  const done = prog.querySelectorAll("li.done").length;
+  const h2 = prog.querySelector("h2");
+  h2.textContent = `Done in ${secs} s · ${done} steps checked · show steps`;
+  h2.tabIndex = 0;
+  h2.setAttribute("role", "button");
+  prog.classList.add("compact");
+  const toggle = () => {
+    const open = prog.classList.toggle("compact") === false;
+    h2.textContent = `Done in ${secs} s · ${done} steps checked · ${open ? "hide" : "show"} steps`;
+  };
+  h2.onclick = toggle;
+  h2.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } };
 }
 
 function setActive(key) {
@@ -390,7 +411,13 @@ async function ask() {
         if (!line) continue;
         const msg = JSON.parse(line);
         if (msg.step) onStep(msg.step);
-        else if (msg.result) { skipUnfinished(); renderResult(msg.result); }
+        else if (msg.result) {
+          skipUnfinished();
+          renderResult(msg.result);
+          foldTimeline();
+          const first = document.querySelector("#results article.route");
+          if (first) first.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+        }
         else if (msg.error) throw new Error(msg.error);
       }
     }
