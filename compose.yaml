@@ -9,6 +9,7 @@ x-common: &common
   environment:
     ZETARIS_JDBC_URL: jdbc:zetaris:lightning@host.docker.internal:10000
     ZETARIS_JDBC_JAR: ${ZETARIS_JDBC_JAR:+/zetaris/jdbc}
+    GOOGLE_MAPS_EMBED_KEY: ${GOOGLE_MAPS_EMBED_KEY:-}
   extra_hosts: ["host.docker.internal:host-gateway"]
   volumes:
     - ./runs:/app/runs

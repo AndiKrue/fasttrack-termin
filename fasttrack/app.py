@@ -63,8 +63,15 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        if self.path.split("?")[0] == "/config":
+            # The Maps Embed key goes to the browser by design (it sits in the iframe URL); it is
+            # restricted to the Maps Embed API and our referrers. The request log line never has it.
+            key = os.environ.get("GOOGLE_MAPS_EMBED_KEY", "")
+            body = {"maps": True, "embed_key": key} if key else {"maps": False}
+            self._send(200, json.dumps(body).encode(), "application/json")
+            return
         # "/" -> static/index.html when present (UI run), else the built-in page; "/miniapp" -> static/miniapp.html
-        name = {"/": "index.html", "/miniapp": "miniapp.html"}.get(self.path.split("?")[0])
+        name ={"/": "index.html", "/miniapp": "miniapp.html"}.get(self.path.split("?")[0])
         if name is None and self.path.startswith("/static/"):
             name = self.path[len("/static/"):].split("?")[0]
         if name is not None:

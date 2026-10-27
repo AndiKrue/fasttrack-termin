@@ -21,6 +21,52 @@ const STEPS = [
 let here = null;            // {lat, lon} once the visitor shares a location
 const geoCache = new Map(); // address -> Promise<{lat, lon} | null>
 let geoQueue = Promise.resolve();
+let mapsKey = "";           // Maps Embed key from /config; empty -> OSM/Google links only
+fetch("/config").then((r) => r.json()).then((c) => { if (c.maps) mapsKey = c.embed_key || ""; }).catch(() => {});
+
+// Booking pages the user opens themselves; the app never fetches these sites.
+// Doctolib slugs as Doctolib links them (checked 2026-10-27); unknown specialty -> Doctolib start page.
+const DOCTOLIB = [
+  [/derma|haut/i, "hautarzt"], [/ortho/i, "teilfachgebiet-orthopaedie"], [/cardio|kardio/i, "kardiologie"],
+  [/ophthal|augen/i, "augenheilkunde"], [/\bENT\b|hno/i, "facharzt-fur-hno"], [/gyn|frauen/i, "frauenarzt"],
+  [/neuro/i, "neurologie"],
+];
+const TERMINSERVICE = "https://www.116117-termine.de/"; // linked as "Termin vereinbaren" on 116117.de
+// Source: kvberlin.de -> Patientenservice 116117 -> KV-Notdienstpraxen (checked 2026-10-27)
+const KV_NOTDIENST = "https://www.kvberlin.de/fuer-patienten/aerztlicher-bereitschaftsdienst-116117/kv-notdienstpraxen";
+
+function doctolibUrl(...texts) {
+  for (const t of texts) for (const [re, slug] of DOCTOLIB) if (re.test(t || "")) return `https://www.doctolib.de/${slug}/berlin`;
+  return "https://www.doctolib.de/";
+}
+
+function mapSrc(address) {
+  const dest = encodeURIComponent(address);
+  const key = encodeURIComponent(mapsKey);
+  return here
+    ? `https://www.google.com/maps/embed/v1/directions?key=${key}&origin=${here.lat},${here.lon}&destination=${dest}&mode=transit`
+    : `https://www.google.com/maps/embed/v1/place?key=${key}&q=${dest}`;
+}
+
+// ---- acute or unsure: fixed text, the same for every question, never decided by a model ----
+function acutePanel() {
+  const box = el("section", "card acute");
+  box.setAttribute("aria-label", "Acute or unsure?");
+  box.append(el("h2", null, "Acute or unsure?"));
+  const ul = el("ul");
+  const li1 = el("li");
+  li1.append("Life-threatening: ", link("tel:112", null, "call 112"));
+  const li2 = el("li");
+  li2.append("Urgent outside practice hours: on-call doctor service ", link("tel:116117", null, "116117"), " (", link("https://www.116117.de", null, "116117.de"), ")");
+  const li3 = el("li", null, "Hospital emergency rooms treat emergencies.");
+  const li4 = el("li");
+  li4.append(link(KV_NOTDIENST, null, "KV Berlin on-call practices (Notdienstpraxen)"));
+  ul.append(li1, li2, li3, li4);
+  box.append(ul);
+  return box;
+}
+$("results").before(acutePanel());
+let lastQuestion = "";
 
 function el(tag, cls, text) {
   const n = document.createElement(tag);
@@ -51,7 +97,8 @@ $("locate").onclick = () => {
     (p) => {
       here = { lat: p.coords.latitude, lon: p.coords.longitude };
       $("locstate").textContent = "Location set; distances are shown on the cards.";
-      document.querySelectorAll("[data-address]").forEach(fillDistance);
+      document.querySelectorAll("span[data-address]").forEach(fillDistance);
+      document.querySelectorAll("iframe[data-address]").forEach((f) => { f.src = mapSrc(f.dataset.address); });
     },
     () => { $("locstate").textContent = "Location was not shared."; },
     { enableHighAccuracy: false, timeout: 10000 },
@@ -181,7 +228,26 @@ function renderRoute(route, i, evidence) {
       fillDistance(d);
     }
     card.append(box);
+    if (p.address && mapsKey) {
+      const f = el("iframe", "map");
+      f.dataset.address = p.address;
+      f.src = mapSrc(p.address);
+      f.loading = "lazy";
+      f.width = "100%";
+      f.height = "220";
+      f.title = `Route to ${p.name || p.address} by public transport`;
+      f.referrerPolicy = "no-referrer-when-downgrade";
+      card.append(f);
+    }
   }
+
+  const specialties = (route.evidence || []).map((id) => ((evidence[id] || {}).row || {}).specialty).join(" ");
+  const book = el("div", "practice");
+  book.append(
+    link(doctolibUrl(specialties, route.route, lastQuestion), "link", "Search on Doctolib"),
+    link(TERMINSERVICE, "link", "Book via 116117"),
+  );
+  card.append(book);
 
   const chips = el("div", "evchips");
   const detail = el("div");
@@ -299,6 +365,7 @@ async function fillDistance(node) {
 async function ask() {
   const question = $("q").value.trim();
   if (!question) return;
+  lastQuestion = question;
   $("go").disabled = true;
   $("results").replaceChildren();
   resetTimeline();

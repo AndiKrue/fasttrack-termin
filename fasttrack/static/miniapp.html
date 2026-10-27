@@ -36,6 +36,8 @@ pre{white-space:pre-wrap;word-break:break-word;background:var(--card);padding:.5
 a{color:var(--link)}
 .err{color:#dc2626}
 footer{margin-top:1.2rem}
+.map{display:block;width:100%;height:220px;border:0;border-radius:10px;margin-top:.5rem}
+.acute{border-left:4px solid #b45309}.acute h2{font-size:1rem;margin:0 0 .3rem}.acute ul{margin:0;padding-left:1.1rem}
 </style>
 </head>
 <body>
@@ -46,6 +48,18 @@ footer{margin-top:1.2rem}
 <div class="chips" id="chips"></div>
 <button class="act" id="fallback" hidden>Find fastest route</button>
 <ul class="timeline" id="timeline" hidden></ul>
+<!-- Acute or unsure: fixed text for every question, never decided by a model.
+     KV Berlin on-call practices, source: kvberlin.de -> Patientenservice 116117 -> KV-Notdienstpraxen (checked 2026-10-27):
+     https://www.kvberlin.de/fuer-patienten/aerztlicher-bereitschaftsdienst-116117/kv-notdienstpraxen -->
+<section class="card acute" aria-label="Acute or unsure?">
+<h2>Acute or unsure?</h2>
+<ul>
+<li>Life-threatening: <a href="tel:112">call 112</a></li>
+<li>Urgent outside practice hours: on-call doctor service <a href="tel:116117">116117</a> (<a class="ext" href="https://www.116117.de" target="_blank" rel="noopener">116117.de</a>)</li>
+<li>Hospital emergency rooms treat emergencies.</li>
+<li><a class="ext" href="https://www.kvberlin.de/fuer-patienten/aerztlicher-bereitschaftsdienst-116117/kv-notdienstpraxen" target="_blank" rel="noopener">KV Berlin on-call practices (Notdienstpraxen)</a></li>
+</ul>
+</section>
 <div id="out" aria-live="polite"></div>
 <footer class="muted">
 <p>Practices and waiting times in the demo database are SAMPLE data; web results link their source. Not medical advice. In an emergency call 112.</p>
@@ -74,6 +88,27 @@ for (const ex of EXAMPLES) { const c = el("button", ex.split(",")[0] + " …", "
 
 function openLink(url) { if (inTelegram && /^https?:/.test(url)) tg.openLink(url); else window.open(url, "_blank", "noopener"); }
 function call(phone) { const tel = "tel:" + phone.replace(/[^\d+]/g, ""); location.href = tel; }
+// Plain links the user opens; inside Telegram they go through tg.openLink so they leave the webview.
+function extLink(url, text) {
+  const a = el("a", text); a.href = url; a.target = "_blank"; a.rel = "noopener";
+  a.onclick = (e) => { if (inTelegram) { e.preventDefault(); tg.openLink(url); } };
+  return a;
+}
+document.querySelectorAll("a.ext").forEach((a) => { a.onclick = (e) => { if (inTelegram) { e.preventDefault(); tg.openLink(a.href); } }; });
+
+let mapsKey = ""; // Maps Embed key from /config; empty -> Route button only
+fetch("/config").then((r) => r.json()).then((c) => { if (c.maps) mapsKey = c.embed_key || ""; }).catch(() => {});
+// Booking pages the user opens themselves; the app never fetches these sites.
+// Doctolib slugs as Doctolib links them (checked 2026-10-27); unknown specialty -> Doctolib start page.
+const DOCTOLIB = [[/derma|haut/i, "hautarzt"], [/ortho/i, "teilfachgebiet-orthopaedie"], [/cardio|kardio/i, "kardiologie"], [/ophthal|augen/i, "augenheilkunde"], [/\bENT\b|hno/i, "facharzt-fur-hno"], [/gyn|frauen/i, "frauenarzt"], [/neuro/i, "neurologie"]];
+const TERMINSERVICE = "https://www.116117-termine.de/"; // linked as "Termin vereinbaren" on 116117.de
+function doctolibUrl(...texts) { for (const t of texts) for (const [re, slug] of DOCTOLIB) if (re.test(t || "")) return "https://www.doctolib.de/" + slug + "/berlin"; return "https://www.doctolib.de/"; }
+function mapSrc(address) {
+  const dest = encodeURIComponent(address), key = encodeURIComponent(mapsKey);
+  return here ? "https://www.google.com/maps/embed/v1/directions?key=" + key + "&origin=" + here.lat + "," + here.lon + "&destination=" + dest + "&mode=transit"
+              : "https://www.google.com/maps/embed/v1/place?key=" + key + "&q=" + dest;
+}
+let lastQuestion = "";
 
 // Timeline: one row per agent step, marked running/done from the NDJSON stream.
 const STEPS = [["plan", "Planning"], ["query", "Zetaris sources"], ["web", "Web search"], ["recall", "Memory (H-MEM)"], ["verify", "Verify"]];
@@ -119,6 +154,7 @@ async function fillDistances(targets) {
   if (!targets.length) return;
   here = here || await getLocation();
   if (!here) { targets.forEach(([, span]) => { span.textContent = "location not shared"; }); return; }
+  document.querySelectorAll("iframe[data-address]").forEach((f) => { f.src = mapSrc(f.dataset.address); });
   for (const [address, span] of targets) {
     try { const p = await geocode(address); span.textContent = p ? km(here, p).toFixed(1) + " km away" : "address not found"; } catch { span.textContent = "distance unavailable"; }
     await sleep(1100); // Nominatim usage policy: at most one request per second
@@ -135,7 +171,7 @@ function render(result) {
     if (x.expected_days !== null && x.expected_days !== undefined) card.append(el("div", "Expected: about " + x.expected_days + " days", "days"));
     card.append(el("p", "Why: " + x.why));
     const actions = el("div", undefined, "row");
-    const seen = new Set();
+    const seen = new Set(), maps = [];
     for (const id of x.evidence || []) {
       const ev = result.evidence[id]; if (!ev) continue;
       const row = Object.fromEntries(Object.entries(ev.row || {}).map(([k, v]) => [k.toLowerCase(), v])); // Zetaris may upper-case column names
@@ -151,9 +187,20 @@ function render(result) {
         b.onclick = () => openLink("https://www.openstreetmap.org/directions?to=" + encodeURIComponent(row.address));
         const dist = el("span", "…", "muted");
         actions.append(b, dist); geoTargets.push([row.address, dist]);
+        if (mapsKey && !maps.length) {
+          const f = el("iframe", undefined, "map");
+          f.dataset.address = row.address; f.src = mapSrc(row.address); f.loading = "lazy"; f.width = "100%"; f.height = "220";
+          f.title = "Route to " + (row.name || row.address) + " by public transport"; f.referrerPolicy = "no-referrer-when-downgrade";
+          maps.push(f);
+        }
       }
     }
     if (actions.children.length) card.append(actions);
+    maps.forEach((f) => card.append(f));
+    const specialties = (x.evidence || []).map((id) => ((result.evidence[id] || {}).row || {}).specialty).join(" ");
+    const book = el("div", undefined, "row");
+    book.append(extLink(doctolibUrl(specialties, x.route, lastQuestion), "Search on Doctolib"), extLink(TERMINSERVICE, "Book via 116117"));
+    card.append(book);
     out.append(card);
   });
   (result.caveats || []).forEach((c) => out.append(el("p", "Note: " + c, "muted")));
@@ -173,6 +220,7 @@ let busy = false;
 async function ask() {
   const question = $("q").value.trim();
   if (busy || !question) return;
+  lastQuestion = question;
   busy = true; $("out").replaceChildren(); resetTimeline();
   if (inTelegram) tg.MainButton.showProgress(); else $("fallback").disabled = true;
   try {
