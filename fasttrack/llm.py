@@ -2,9 +2,9 @@
 # Copyright (C) 2026 Andreas Krueger
 """Nemotron through the NVIDIA API (OpenAI-compatible), one model per role.
 
-planner  - decides which questions to ask the sources (Super 120B)
+planner  - decides which questions to ask the sources (Lightning 30B, fast)
 sql      - turns each question into one read-only SELECT over the federated schema
-answer   - ranks the routes and explains why, citing evidence ids only
+answer   - ranks the routes and explains why, citing evidence ids only (Ultra 550B)
 verifier - checks every claim against the cited rows and strikes the unsupported ones
 """
 
@@ -19,9 +19,9 @@ import httpx
 
 BASE = os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
 MODELS = {
-    "planner": os.environ.get("FT_MODEL_PLANNER", "nvidia/nemotron-3-super-120b-a12b"),
+    "planner": os.environ.get("FT_MODEL_PLANNER", "nvidia/nemotron-3.5-lightning-30b-a3b"),
     "sql": os.environ.get("FT_MODEL_SQL", "nvidia/nemotron-3.5-lightning-30b-a3b"),
-    "answer": os.environ.get("FT_MODEL_ANSWER", "nvidia/nemotron-3-super-120b-a12b"),
+    "answer": os.environ.get("FT_MODEL_ANSWER", "nvidia/nemotron-3-ultra-550b-a55b"),
     "verifier": os.environ.get("FT_MODEL_VERIFIER", "nvidia/nemotron-3.5-lightning-30b-a3b"),
 }
 
