@@ -10,6 +10,7 @@ query and row behind each sentence. Claims the verifier cannot tie to evidence a
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 import uuid
 
 from .memory import open_memory, stamp
@@ -54,32 +55,38 @@ def investigate(question: str, llm, source=None, memory=None, search=None, on_st
     questions = [q for q in plan.get("questions", []) if isinstance(q, str)][:5]
     _add(trace, notify, {"step": "plan", "questions": questions})
 
-    evidence, queries = {}, []
-    for q in questions:
-        try:
-            sql = llm.json("sql", SQL, q)["sql"]
-            rows = source.query(sql)
-        except Exception as exc:  # a bad query is recorded, never fatal
-            queries.append({"question": q, "error": f"{type(exc).__name__}: {exc}"[:300]})
-            continue
-        ids = []
-        for row in rows:
-            eid = f"E{len(evidence) + 1}"
-            evidence[eid] = {"sql": sql, "row": row}
-            ids.append(eid)
-        queries.append({"question": q, "sql": sql, "evidence": ids})
-    _add(trace, notify, {"step": "query", "queries": queries})
-
     search = open_search() if search is None else (search or None)
-    if search is not None:
-        try:
-            web_query, practices = web_evidence(question, llm, search)
-            for row in practices:
+    # Model calls are the slow part: write every SQL query and run the web search at the same time.
+    # The database queries themselves stay sequential on the one JDBC connection.
+    with ThreadPoolExecutor(max_workers=len(questions) + 1) as pool:
+        drafts = [pool.submit(lambda q=q: llm.json("sql", SQL, q)["sql"]) for q in questions]
+        web = pool.submit(web_evidence, question, llm, search) if search is not None else None
+
+        evidence, queries = {}, []
+        for q, draft_sql in zip(questions, drafts):
+            try:
+                sql = draft_sql.result()
+                rows = source.query(sql)
+            except Exception as exc:  # a bad query is recorded, never fatal
+                queries.append({"question": q, "error": f"{type(exc).__name__}: {exc}"[:300]})
+                continue
+            ids = []
+            for row in rows:
                 eid = f"E{len(evidence) + 1}"
-                evidence[eid] = {"sql": f"web search: {web_query}", "url": row.get("url"), "row": row}
-            _add(trace, notify, {"step": "web", "query": web_query, "practices": len(practices)})
-        except Exception as exc:  # the web is optional evidence, never fatal
-            _add(trace, notify, {"step": "web", "error": f"{type(exc).__name__}: {exc}"[:300]})
+                evidence[eid] = {"sql": sql, "row": row}
+                ids.append(eid)
+            queries.append({"question": q, "sql": sql, "evidence": ids})
+        _add(trace, notify, {"step": "query", "queries": queries})
+
+        if web is not None:
+            try:
+                web_query, practices = web.result()
+                for row in practices:
+                    eid = f"E{len(evidence) + 1}"
+                    evidence[eid] = {"sql": f"web search: {web_query}", "url": row.get("url"), "row": row}
+                _add(trace, notify, {"step": "web", "query": web_query, "practices": len(practices)})
+            except Exception as exc:  # the web is optional evidence, never fatal
+                _add(trace, notify, {"step": "web", "error": f"{type(exc).__name__}: {exc}"[:300]})
     trace["web"] = getattr(search, "name", None)
 
     recalled = memory.recall(question)

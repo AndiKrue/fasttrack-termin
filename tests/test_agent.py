@@ -80,3 +80,19 @@ class WebEvidenceTests(unittest.TestCase):
         query, rows = web_evidence("knee Köpenick", LLM(), search)
         self.assertEqual([r["name"] for r in rows], ["A"])
         self.assertIn("Köpenick", query)
+
+
+class ParallelTests(unittest.TestCase):
+    def test_sql_drafts_run_concurrently(self):
+        import time
+
+        class Slow(FakeLLM):
+            def json(self, role, system, user, max_tokens=2048):
+                if role == "sql":
+                    time.sleep(0.3)
+                return super().json(role, system, user, max_tokens)
+
+        with tempfile.TemporaryDirectory() as d:
+            started = time.monotonic()
+            investigate("knee, Köpenick", Slow(), LocalSource(), LocalStore(Path(d) / "m.jsonl"), search=False)
+            self.assertLess(time.monotonic() - started, 0.55)  # two 0.3 s drafts overlap
