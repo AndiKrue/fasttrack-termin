@@ -2,7 +2,7 @@
 # Copyright (C) 2026 Andreas Krueger
 """Memory of verified findings, with provenance, recalled on the next question.
 
-`HMemStore` talks to Meterless H-MEM through a small Node bridge (`meterless/bridge.mjs`,
+`HMemStore` talks to Meterless H-MEM through a small Node bridge (`meterless/bridge.ts`, run with tsx,
 JSON on stdin/stdout). `LocalStore` keeps the same records in a JSONL file so the agent works
 without Node. Every record carries the run id and the evidence it came from.
 """
@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -47,13 +48,15 @@ class HMemStore:
     name = "meterless-h-mem"
 
     def __init__(self, bridge: Path | None = None):
-        self.bridge = bridge or ROOT / "meterless" / "bridge.mjs"
-        if not self.bridge.exists():
-            raise FileNotFoundError(self.bridge)
+        self.bridge = bridge or ROOT / "meterless" / "bridge.ts"
+        self.tsx = shutil.which("tsx", path=str(ROOT / "meterless" / "node_modules" / ".bin"))
+        if not self.bridge.exists() or not self.tsx:
+            raise FileNotFoundError("H-MEM bridge needs Node and `npm install` in meterless/")
 
     def _call(self, payload: dict) -> dict:
         done = subprocess.run(
-            ["node", str(self.bridge)],
+            [self.tsx, str(self.bridge)],
+            cwd=ROOT,
             input=json.dumps(payload),
             capture_output=True,
             text=True,
