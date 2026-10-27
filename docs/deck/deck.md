@@ -42,6 +42,19 @@ style: |
   .placeholder b { color: #087c83; font-size: 18px; letter-spacing: 1px; }
   .placeholder span { font-size: 19px; color: #536975; margin-top: 12px; }
 ---
+<div class="eyebrow">Illustrative patient scenario</div>
+
+# Weeks of calling.<br>Still no appointment.
+
+<div class="lead">And no clear reason why.</div>
+
+<div class="band" style="margin-top:42px">The turn: a route with its reason,<br>and evidence you can check.</div>
+
+<p class="small" style="margin-top:24px">Story framing, not a patient testimonial or waiting-time statistic.</p>
+
+<!-- Opening narration and source notes: see ../STORY.md. The calling scenario is illustrative pitch framing requested by the user, not an observed patient history. The product turn is implemented in fasttrack/static/app.js (whyBlock/sourceName/factLine) and fasttrack/agent.py (why_trace, dropped, verifier_notes), commit 446aa574a5779520031efbbe9f61446aa77440d6; inspected on origin/main snapshot 732a83b9b162f165af0643dabdeace6691b0742b. No statistic, clinical advice, live booking or measured improvement is claimed. -->
+
+---
 <!-- _class: title -->
 <!-- _footer: 'Andreas Krüger · Public repository: github.com/AndiKrue/fasttrack-termin · AGPL-3.0' -->
 
@@ -101,16 +114,16 @@ docker compose up --build -d</pre>
 
 <div class="flow">
 <div class="step"><b>1 · Plan →</b>Find the factual questions.<br><span>Nemotron Lightning 30B</span></div>
-<div class="step"><b>2 · SQL →</b>Query three Zetaris sources.<br><span>Rules · practices · waits</span></div>
+<div class="step"><b>2 · SQL →</b>Draft SQL; execute serially.<br><span>Rules · practices · waits</span></div>
 <div class="step"><b>3 · Recall ↓</b>Retrieve earlier findings.<br><span>Meterless H-MEM</span></div>
 <div class="step"><b>6 · Remember</b>Store only retained routes.<br><span>Run-linked memory</span></div>
 <div class="step"><b>5 · Verify ←</b>Drop unsupported routes.<br><span>Nemotron Lightning 30B</span></div>
 <div class="step"><b>4 · Answer ←</b>Rank routes; cite evidence IDs.<br><span>Nemotron Ultra 550B</span></div>
 </div>
 
-<p class="small">Optional Firecrawl search + Lightning extraction precedes Recall. Live steps reach web and Telegram; SQL/web rows share evidence IDs.</p>
+<p class="small">SQL drafting and optional web search overlap. Queries run one by one on the JDBC connection, then Recall.</p>
 
-<!-- Source: ../../fasttrack/agent.py, investigate(). Execution is sequential: plan, SQL queries, optional web search/extraction, recall, answer, verify, remember. SQL generation also uses Lightning. The snake layout follows that order. -->
+<!-- Source: ../../fasttrack/agent.py, investigate(). After the plan, SQL drafting and optional web search/extraction overlap; database execution stays sequential. Then recall, answer, verify, remember. See fasttrack/agent.py at commit 6e8e86d8958146a960e9373021c4467b88374fc8. SQL generation also uses Lightning. The snake layout follows that order. -->
 
 ---
 
@@ -124,11 +137,11 @@ docker compose up --build -d</pre>
 <div><h2>Evidence object</h2><p><code>SQL + row</code> or <code>URL + row</code></p><p>Inspect the exact query result or a web fact and its source URL.</p></div>
 </div>
 
-<div class="band">The verifier is instructed to keep a route only when every factual statement is supported by its cited rows.</div>
+<div class="band">Open “Why this route” for source, row fields and SQL / URL. Inspect “Removed by the verifier” for rejected routes.</div>
 
-<p class="small">Unknown IDs are removed; routes need a valid citation and a keep verdict. This is an LLM check, not a correctness guarantee.</p>
+<p class="small">Routes need a valid citation and a keep verdict. Verifier notes explain removals when available. This LLM check is not a correctness guarantee.</p>
 
-<!-- Source: ../../fasttrack/agent.py. Evidence IDs are assigned to SQL result rows and optional extracted web rows. Web evidence uses a search description in the sql field and a URL; it is not a SQL result. The verifier can remove whole routes; it does not rewrite individual claims. Draft caveats are passed through without the route-verification gate. No benchmark accuracy is claimed. -->
+<!-- Source: ../../fasttrack/agent.py. Evidence IDs are assigned to SQL result rows and optional extracted web rows. Web evidence uses a search description in the sql field and a URL; it is not a SQL result. The verifier can remove whole routes; it does not rewrite individual claims. Draft caveats are passed through without the route-verification gate. No benchmark accuracy is claimed. UI details: fasttrack/static/app.js whyBlock and result rendering, commit 446aa574a5779520031efbbe9f61446aa77440d6; source snapshot 732a83b9b162f165af0643dabdeace6691b0742b. See ../STORY.md for pinned citations. -->
 
 ---
 
@@ -178,9 +191,9 @@ docker compose up --build -d</pre>
 
 <p><strong>Image:</strong> Python 3.12 + JRE 17 for Zetaris JDBC + Node for H-MEM.<br><strong>Compose:</strong> app, Cloudflare quick tunnel (public HTTPS), Telegram bot.<br><strong>Zetaris:</strong> <code>host.docker.internal:10000</code>; empty <code>ZETARIS_JDBC_JAR</code> uses local SQLite.</p>
 
-<p class="small">NVIDIA API · Optional Firecrawl: cloud or self-hosted · No measured gains claimed.</p>
+<p class="small">“Model calls” shows role, model, seconds and tokens. No JSON twice on Lightning: final attempt on Ultra.</p>
 
-<!-- Source: ../../fasttrack/llm.py. Defaults: nvidia/nemotron-3.5-lightning-30b-a3b for planner/sql/verifier; nvidia/nemotron-3-ultra-550b-a55b for answer. FT_MODEL_* overrides are supported. Configuration is not evidence of a successful live run. The model-call trace records model, role, time and token usage when returned. -->
+<!-- Source: ../../fasttrack/llm.py. Defaults: nvidia/nemotron-3.5-lightning-30b-a3b for planner/sql/verifier; nvidia/nemotron-3-ultra-550b-a55b for answer. FT_MODEL_* overrides are supported. Configuration is not evidence of a successful live run. The model-call trace records model, role, time and token usage when returned. Nemotron.json retries unparseable JSON, then uses FT_MODEL_FALLBACK (Ultra by default) if distinct from the role model; this is not a general HTTP-error retry. See fasttrack/llm.py at commit b3981903241266cf35b0fa2fc9b77babf146c32b. UI Model calls table: fasttrack/static/app.js, commit 446aa574a5779520031efbbe9f61446aa77440d6. -->
 
 ---
 
@@ -213,4 +226,4 @@ docker compose up --build -d</pre>
 
 <p class="small">Public source: <a href="https://github.com/AndiKrue/fasttrack-termin">github.com/AndiKrue/fasttrack-termin</a></p>
 
-<!-- Future work is proposed, not implemented. Source baseline inspected: 7f871b6f50b6a3be78c4ad7efae27ffc7a96ada8. Re-export with Marp CLI and Chromium: npx @marp-team/marp-cli@4.5.1 docs/deck/deck.md --html --pdf -o docs/deck/deck.pdf. No keys or personal patient data belong in the deck. -->
+<!-- Future work is proposed, not implemented. Source baseline inspected: 732a83b9b162f165af0643dabdeace6691b0742b. Re-export with Marp CLI and Chromium: npx @marp-team/marp-cli@4.5.1 docs/deck/deck.md --html --pdf -o docs/deck/deck.pdf. No keys or personal patient data belong in the deck. -->
