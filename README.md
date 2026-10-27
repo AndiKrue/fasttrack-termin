@@ -10,7 +10,7 @@ Built for the **Open Agent Hackathon 2026**, Track 02 **"The Agent That Can Expl
 
 ## How it works
 
-The workflow is implemented in [fasttrack/agent.py](fasttrack/agent.py).
+The workflow is implemented in [fasttrack/agent.py](fasttrack/agent.py). See [Explainability: how an answer is built, checked and traced](docs/EXPLAINABILITY.md) for the worked test example and refusal boundaries.
 
 ```mermaid
 flowchart TD
