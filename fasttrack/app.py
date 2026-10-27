@@ -5,11 +5,15 @@
 from __future__ import annotations
 
 import json
+import mimetypes
 import os
+from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from .agent import investigate
 from .llm import Nemotron
+
+STATIC = Path(__file__).resolve().parent / "static"
 
 PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>FastTrack Termin</title>
@@ -50,38 +54,66 @@ document.getElementById('go').onclick=async()=>{
 class Handler(BaseHTTPRequestHandler):
     llm = None
 
-    def do_GET(self):
-        body = PAGE.encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
+    def _send(self, status, body: bytes, ctype: str):
+        self.send_response(status)
+        self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
 
+    def do_GET(self):
+        # "/" -> static/index.html when present (UI run), else the built-in page; "/miniapp" -> static/miniapp.html
+        name = {"/": "index.html", "/miniapp": "miniapp.html"}.get(self.path.split("?")[0])
+        if name is None and self.path.startswith("/static/"):
+            name = self.path[len("/static/"):].split("?")[0]
+        if name is not None:
+            path = (STATIC / name).resolve()
+            if path.is_file() and path.is_relative_to(STATIC):
+                ctype = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+                self._send(200, path.read_bytes(), ctype + ("; charset=utf-8" if ctype.startswith("text/") else ""))
+                return
+            if name == "index.html":
+                self._send(200, PAGE.encode(), "text/html; charset=utf-8")
+                return
+        self.send_error(404)
+
+    def _question(self) -> str:
+        length = min(int(self.headers.get("Content-Length") or 0), 8192)
+        return str(json.loads(self.rfile.read(length) or b"{}").get("question", ""))[:2000]
+
     def do_POST(self):
+        if self.path == "/ask/stream":
+            # NDJSON: one {"step": ...} line per agent step, then {"result": ...}
+            self.send_response(200)
+            self.send_header("Content-Type", "application/x-ndjson")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+
+            def emit(obj):
+                self.wfile.write((json.dumps(obj, ensure_ascii=False, default=str) + "\n").encode())
+                self.wfile.flush()
+
+            try:
+                result = investigate(self._question(), Handler.llm, on_step=lambda st: emit({"step": st}))
+                emit({"result": result})
+            except Exception as exc:
+                emit({"error": f"{type(exc).__name__}: {exc}"[:400]})
+            return
         if self.path != "/ask":
             self.send_error(404)
             return
-        length = min(int(self.headers.get("Content-Length") or 0), 8192)
         try:
-            question = str(json.loads(self.rfile.read(length) or b"{}").get("question", ""))[:2000]
-            result = investigate(question, Handler.llm)
-            status = 200
+            result, status = investigate(self._question(), Handler.llm), 200
         except Exception as exc:  # shown to the local user, never a stack trace
             result, status = {"error": f"{type(exc).__name__}: {exc}"[:400]}, 500
-        body = json.dumps(result, ensure_ascii=False, default=str).encode()
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        self._send(status, json.dumps(result, ensure_ascii=False, default=str).encode(), "application/json")
 
 
 def main():
     Handler.llm = Nemotron()
     port = int(os.environ.get("FT_PORT", "8765"))
     print(f"FastTrack Termin on http://127.0.0.1:{port}")
-    ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
+    ThreadingHTTPServer((os.environ.get("FT_HOST", "127.0.0.1"), port), Handler).serve_forever()
 
 
 if __name__ == "__main__":

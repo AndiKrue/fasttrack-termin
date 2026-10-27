@@ -91,7 +91,7 @@ def investigate(question: str, llm, source=None, memory=None, search=None, on_st
         "answer",
         ANSWER,
         f"Patient question: {question}\nEvidence rows: {rows_text}\nEarlier verified findings: {prior}",
-        max_tokens=3000,
+        max_tokens=8192,
     )
     routes = [r for r in draft.get("routes", []) if isinstance(r, dict)]
     for r in routes:  # citations must name real evidence

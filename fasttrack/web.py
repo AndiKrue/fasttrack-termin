@@ -65,7 +65,7 @@ def web_evidence(question: str, llm, search) -> tuple[str, list[dict]]:
         "verifier",
         EXTRACT,
         f"Patient need: {question}\nPages: " + "\n\n".join(f"URL: {p['url']}\nTITLE: {p['title']}\n{p['text']}" for p in pages),
-        max_tokens=3000,
+        max_tokens=8192,
     )
     urls = {p["url"] for p in pages}
     return query, [p for p in found.get("practices", []) if isinstance(p, dict) and p.get("url") in urls]
