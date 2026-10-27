@@ -55,6 +55,7 @@ def investigate(question: str, llm, source=None, memory=None, search=None, on_st
     source = source or open_source()
     memory = memory or open_memory()
     run_id = uuid.uuid4().hex[:8]
+    first_call = len(getattr(llm, "calls", []))  # the client is shared across requests: report only this run's calls
     notify = on_step or (lambda step: None)
     trace = {"run_id": run_id, "question": question, "source": source.name, "memory": memory.name, "steps": []}
 
@@ -144,7 +145,7 @@ def investigate(question: str, llm, source=None, memory=None, search=None, on_st
         "verifier_notes": notes,
         "evidence": {e: evidence[e] for r in kept for e in r["evidence"]},
         "trace": trace,
-        "model_calls": getattr(llm, "calls", []),
+        "model_calls": getattr(llm, "calls", [])[first_call:],
     }
 
 

@@ -129,6 +129,25 @@ class WebEvidenceTests(unittest.TestCase):
         self.assertEqual([r["url"] for r in rows], ["https://fast.example/"])
 
 
+class ModelCallsTests(unittest.TestCase):
+    def test_each_run_reports_only_its_own_calls(self):
+        class Counting(FakeLLM):
+            def __init__(self):
+                self.calls = []
+
+            def json(self, role, system, user, max_tokens=2048, think=None):
+                self.calls.append({"role": role})
+                return super().json(role, system, user, max_tokens)
+
+        llm = Counting()
+        with tempfile.TemporaryDirectory() as d:
+            first = investigate("knee, Köpenick", llm, LocalSource(), LocalStore(Path(d) / "m.jsonl"), search=False)
+            second = investigate("knee, Köpenick", llm, LocalSource(), LocalStore(Path(d) / "m.jsonl"), search=False)
+        self.assertGreater(len(first["model_calls"]), 0)
+        self.assertEqual(len(second["model_calls"]), len(first["model_calls"]))
+        self.assertEqual(len(llm.calls), 2 * len(first["model_calls"]))
+
+
 class ParallelTests(unittest.TestCase):
     def test_sql_drafts_run_concurrently(self):
         import time
