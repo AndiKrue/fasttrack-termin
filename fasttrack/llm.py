@@ -25,6 +25,7 @@ MODELS = {
     "answer": os.environ.get("FT_MODEL_ANSWER", "nvidia/nemotron-3-ultra-550b-a55b"),
     "verifier": os.environ.get("FT_MODEL_VERIFIER", "nvidia/nemotron-3.5-lightning-30b-a3b"),
 }
+FALLBACK = os.environ.get("FT_MODEL_FALLBACK", "nvidia/nemotron-3-ultra-550b-a55b")
 
 
 class Nemotron:
@@ -35,23 +36,24 @@ class Nemotron:
         self.http = httpx.Client(base_url=BASE, timeout=timeout)
         self.calls: list[dict] = []
 
-    def chat(self, role: str, system: str, user: str, max_tokens: int = 2048) -> str:
+    def chat(self, role: str, system: str, user: str, max_tokens: int = 2048, model: str | None = None) -> str:
         started = time.monotonic()
+        model = model or MODELS[role]
         body = {
-            "model": MODELS[role],
+            "model": model,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
             "temperature": 0.2,
             "max_tokens": max_tokens,
         }
         r = self.http.post("/chat/completions", json=body, headers={"Authorization": f"Bearer {self.key}"})
-        print(f"[nemotron] {role} {MODELS[role]} -> {r.status_code} in {time.monotonic() - started:.1f}s", flush=True)
+        print(f"[nemotron] {role} {model} -> {r.status_code} in {time.monotonic() - started:.1f}s", flush=True)
         r.raise_for_status()
         data = r.json()
         usage = data.get("usage") or {}
         self.calls.append(
             {
                 "role": role,
-                "model": MODELS[role],
+                "model": model,
                 "seconds": round(time.monotonic() - started, 2),
                 "tokens_in": usage.get("prompt_tokens"),
                 "tokens_out": usage.get("completion_tokens"),
@@ -72,7 +74,14 @@ class Nemotron:
             try:
                 return parse_json(text)
             except ValueError:
-                raise ValueError(f"model reply contained no JSON (finish_reason={self.last_finish})") from None
+                pass
+        if MODELS[role] != FALLBACK:  # a reasoning model that keeps thinking aloud: one last try on Ultra
+            print(f"[nemotron] {role}: no JSON twice, falling back to {FALLBACK}", flush=True)
+            try:
+                return parse_json(self.chat(role, system + " Output the JSON immediately.", user, max_tokens, model=FALLBACK))
+            except ValueError:
+                pass
+        raise ValueError(f"model reply contained no JSON (finish_reason={self.last_finish})")
 
 
 def parse_json(text: str):
