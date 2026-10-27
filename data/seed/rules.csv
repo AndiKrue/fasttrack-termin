@@ -1,0 +1,8 @@
+rule_id,topic,rule,legal_basis,applies_to
+R1,appointment service,"The appointment service of the Associations of Statutory Health Insurance Physicians (Terminservicestelle, phone 116117 or eTerminservice) must offer a specialist appointment within four weeks when the patient has a referral marked as urgent (Dringlichkeitscode).",§75 Abs. 1a SGB V,specialist with urgent referral
+R2,appointment service,"For gynaecology, ophthalmology and paediatrics the appointment service also arranges appointments without a referral.",§75 Abs. 1a SGB V,gynaecology; ophthalmology; paediatrics
+R3,appointment service,If the appointment service cannot offer an appointment within the deadline it must offer outpatient treatment in a hospital.,§75 Abs. 1a SGB V,specialist with urgent referral
+R4,open consultation,"Specialists in certain groups (among them ophthalmology, ENT, dermatology, gynaecology, orthopaedics, urology, neurology, psychiatry) hold at least five hours per week of open consultation without appointment.",§19a Ärzte-ZV,open consultation specialties
+R5,GP referral,A GP who arranges an urgent specialist appointment for the patient (Hausarzt-Vermittlungsfall) receives a supplement; ask the GP to arrange it.,EBM (§87 SGB V),specialist via GP
+R6,psychotherapy,An initial psychotherapeutic consultation (Sprechstunde) is arranged by the appointment service without a referral.,§75 Abs. 1a SGB V,psychotherapy
+R7,acute care,Outside practice hours the on-call service is reached at 116117; in emergencies call 112.,§75 Abs. 1b SGB V,acute

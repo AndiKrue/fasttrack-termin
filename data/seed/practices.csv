@@ -1,0 +1,11 @@
+practice_id,name,district,specialty,open_consultation_hours_per_week,accepts_new_patients,online_booking,sample
+P01,Sample Practice Orthopaedics Köpenick,Treptow-Köpenick,orthopaedics,5,yes,yes,SAMPLE
+P02,Sample Practice Orthopaedics Mitte,Mitte,orthopaedics,5,no,yes,SAMPLE
+P03,Sample Practice Dermatology Friedrichshain,Friedrichshain-Kreuzberg,dermatology,5,yes,no,SAMPLE
+P04,Sample Practice Dermatology Köpenick,Treptow-Köpenick,dermatology,6,no,yes,SAMPLE
+P05,Sample Practice Cardiology Charlottenburg,Charlottenburg-Wilmersdorf,cardiology,0,yes,yes,SAMPLE
+P06,Sample Practice Cardiology Pankow,Pankow,cardiology,0,no,no,SAMPLE
+P07,Sample Practice Ophthalmology Neukölln,Neukölln,ophthalmology,5,yes,yes,SAMPLE
+P08,Sample Practice ENT Treptow,Treptow-Köpenick,ENT,5,yes,no,SAMPLE
+P09,Sample Practice Neurology Steglitz,Steglitz-Zehlendorf,neurology,5,no,yes,SAMPLE
+P10,Sample Practice Gynaecology Lichtenberg,Lichtenberg,gynaecology,5,yes,yes,SAMPLE

@@ -1,0 +1,13 @@
+observation_id,practice_id,channel,days_to_appointment,observed_on,sample
+W01,P01,open consultation,0,2026-10-20,SAMPLE
+W02,P01,phone,38,2026-10-20,SAMPLE
+W03,P02,online,61,2026-10-21,SAMPLE
+W04,P03,phone,45,2026-10-22,SAMPLE
+W05,P04,online,29,2026-10-22,SAMPLE
+W06,P05,phone,52,2026-10-23,SAMPLE
+W07,P05,appointment service,24,2026-10-23,SAMPLE
+W08,P06,phone,90,2026-10-23,SAMPLE
+W09,P07,open consultation,0,2026-10-24,SAMPLE
+W10,P08,phone,21,2026-10-24,SAMPLE
+W11,P09,appointment service,27,2026-10-25,SAMPLE
+W12,P10,online,14,2026-10-25,SAMPLE

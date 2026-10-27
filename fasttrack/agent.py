@@ -1,0 +1,105 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Andreas Krueger
+"""The explain-why loop: plan -> query the sources -> recall -> answer -> verify -> remember.
+
+Every claim in the final answer cites evidence ids. An evidence id names one row of one SQL
+result (`E3` = row 3 of all rows returned), so a reader can open the trace and see the exact
+query and row behind each sentence. Claims the verifier cannot tie to evidence are removed.
+"""
+
+from __future__ import annotations
+
+import json
+import uuid
+
+from .memory import open_memory, stamp
+from .sources import SCHEMA, open_source
+
+PLANNER = (
+    "You help statutory-insurance patients in Berlin reach a specialist appointment fast. "
+    "Plan which facts are needed from three databases to answer the patient's question: "
+    "the rules of the appointment system, the practice directory, and observed waiting times. "
+    'Return {"questions": [up to 5 short questions, each answerable by one SQL query]}.'
+)
+SQL = (
+    "Write one read-only SQL SELECT for the question, using only these tables and columns:\n"
+    + SCHEMA
+    + "Use the schema-qualified names exactly as shown. No semicolon. "
+    'Return {"sql": "..."}.'
+)
+ANSWER = (
+    "Recommend the fastest routes to a specialist appointment for this patient, best first. "
+    "Use only the evidence rows given; cite them by id. Say plainly when data are sample data. "
+    "Never give medical advice; in an emergency point to 112. "
+    'Return {"routes": [{"route": "...", "expected_days": number or null, '
+    '"why": "...", "evidence": ["E1", ...]}], "caveats": ["..."]}.'
+)
+VERIFY = (
+    "Check each route against the cited evidence rows. Keep a route only if every factual "
+    "statement in it is supported by its cited rows. "
+    'Return {"keep": [indexes of supported routes], "notes": ["why a route was dropped"]}.'
+)
+
+
+def investigate(question: str, llm, source=None, memory=None) -> dict:
+    source = source or open_source()
+    memory = memory or open_memory()
+    run_id = uuid.uuid4().hex[:8]
+    trace = {"run_id": run_id, "question": question, "source": source.name, "memory": memory.name, "steps": []}
+
+    plan = llm.json("planner", PLANNER, question)
+    questions = [q for q in plan.get("questions", []) if isinstance(q, str)][:5]
+    trace["steps"].append({"step": "plan", "questions": questions})
+
+    evidence, queries = {}, []
+    for q in questions:
+        try:
+            sql = llm.json("sql", SQL, q)["sql"]
+            rows = source.query(sql)
+        except Exception as exc:  # a bad query is recorded, never fatal
+            queries.append({"question": q, "error": f"{type(exc).__name__}: {exc}"[:300]})
+            continue
+        ids = []
+        for row in rows:
+            eid = f"E{len(evidence) + 1}"
+            evidence[eid] = {"sql": sql, "row": row}
+            ids.append(eid)
+        queries.append({"question": q, "sql": sql, "evidence": ids})
+    trace["steps"].append({"step": "query", "queries": queries})
+
+    recalled = memory.recall(question)
+    trace["steps"].append({"step": "recall", "records": len(recalled)})
+
+    rows_text = json.dumps({k: v["row"] for k, v in evidence.items()}, ensure_ascii=False)
+    prior = json.dumps(recalled, ensure_ascii=False)
+    draft = llm.json(
+        "answer",
+        ANSWER,
+        f"Patient question: {question}\nEvidence rows: {rows_text}\nEarlier verified findings: {prior}",
+        max_tokens=3000,
+    )
+    routes = [r for r in draft.get("routes", []) if isinstance(r, dict)]
+    for r in routes:  # citations must name real evidence
+        r["evidence"] = [e for e in r.get("evidence", []) if e in evidence]
+
+    cited = {e: evidence[e]["row"] for r in routes for e in r["evidence"]}
+    verdict = llm.json(
+        "verifier",
+        VERIFY,
+        f"Routes: {json.dumps(routes, ensure_ascii=False)}\nRows: {json.dumps(cited, ensure_ascii=False)}",
+    )
+    keep = {i for i in verdict.get("keep", []) if isinstance(i, int)}
+    kept = [r for i, r in enumerate(routes) if i in keep and r["evidence"]]
+    trace["steps"].append({"step": "verify", "kept": len(kept), "dropped": len(routes) - len(kept), "notes": verdict.get("notes", [])})
+
+    for r in kept:
+        memory.remember({"run_id": run_id, "at": stamp(), "question": question, "route": r["route"], "why": r["why"], "evidence": {e: evidence[e] for e in r["evidence"]}})
+
+    return {
+        "run_id": run_id,
+        "routes": kept,
+        "caveats": draft.get("caveats", []),
+        "evidence": {e: evidence[e] for r in kept for e in r["evidence"]},
+        "trace": trace,
+        "model_calls": getattr(llm, "calls", []),
+    }
