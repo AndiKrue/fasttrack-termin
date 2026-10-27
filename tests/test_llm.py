@@ -12,7 +12,7 @@ class FallbackTest(unittest.TestCase):
         bot.last_finish = "length"
         seen = []
 
-        def chat(role, system, user, max_tokens=2048, model=None):
+        def chat(role, system, user, max_tokens=2048, model=None, think=None):
             seen.append(model)
             return '{"sql": "SELECT 1"}' if model == llm.FALLBACK else "still thinking"
 

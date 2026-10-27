@@ -16,7 +16,8 @@ from pathlib import Path
 import jaydebeapi
 
 ROOT = Path(__file__).resolve().parent.parent
-TARGET = os.environ.get("FT_CONTAINER_DIR", "/tmp/fasttrack")
+# Lightning only reads files under the driver's ZETARIS_LOCAL_FILE_SYTEM_ROOT_PATH; file:///tmp is rejected.
+TARGET = os.environ.get("FT_CONTAINER_DIR", "/home/zetaris/customer-data/shared/fasttrack")
 SOURCES = {"FT_RULES": "rules", "FT_PRACTICES": "practices", "FT_WAITS": "waits"}
 
 

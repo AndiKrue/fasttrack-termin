@@ -13,7 +13,7 @@ from fasttrack.sources import LocalSource, check_sql
 class FakeLLM:
     calls = []
 
-    def json(self, role, system, user, max_tokens=2048):
+    def json(self, role, system, user, max_tokens=2048, think=None):
         if role == "planner":
             return {"questions": ["open consultation orthopaedics in Treptow-Köpenick", "rules"]}
         if role == "sql":
@@ -38,7 +38,7 @@ class AgentTests(unittest.TestCase):
 
     def test_dropped_route_is_explained(self):
         class Strict(FakeLLM):
-            def json(self, role, system, user, max_tokens=2048):
+            def json(self, role, system, user, max_tokens=2048, think=None):
                 if role == "verifier":
                     return {"keep": [0], "notes": ["Invented: no row supports it"]}
                 return super().json(role, system, user, max_tokens)
@@ -58,6 +58,8 @@ class AgentTests(unittest.TestCase):
 
     def test_parse_json_skips_reasoning(self):
         self.assertEqual(parse_json('<think>{"no":1}</think> ok {"a": [1]}'), {"a": [1]})
+        nested = '{"routes": [{"route": "A", "evidence": ["E1"]}], "caveats": ["c"]}'
+        self.assertEqual(parse_json(nested)["routes"][0]["route"], "A")
 
 
 if __name__ == "__main__":
@@ -69,7 +71,7 @@ class WebEvidenceTests(unittest.TestCase):
         from fasttrack.web import FirecrawlSearch, web_evidence
 
         class LLM:
-            def json(self, role, system, user, max_tokens=2048):
+            def json(self, role, system, user, max_tokens=2048, think=None):
                 if "search query" in system:
                     return {"query": "Orthopäde Köpenick offene Sprechstunde"}
                 return {"practices": [{"name": "A", "url": "https://praxis-a.example/"}, {"name": "Ghost", "url": "https://nowhere.example/"}]}
@@ -81,13 +83,58 @@ class WebEvidenceTests(unittest.TestCase):
         self.assertEqual([r["name"] for r in rows], ["A"])
         self.assertIn("Köpenick", query)
 
+    def test_extraction_reads_at_most_three_pages_of_3000_chars(self):
+        from fasttrack import web
+
+        seen = []
+
+        class LLM:
+            def json(self, role, system, user, max_tokens=2048, think=None):
+                if "search query" in system:
+                    return {"query": "Hautarzt Berlin"}
+                seen.append(user)
+                return {"practices": []}
+
+        class Search:
+            def search(self, q, limit=5):
+                return [{"url": f"https://p{i}.example/", "title": "", "text": "z" * 5000} for i in range(5)]
+
+        web.web_evidence("skin", LLM(), Search())
+        self.assertEqual(len(seen), 3)
+        self.assertTrue(all(u.count("z") == 3000 for u in seen))
+
+    def test_slow_page_is_dropped_and_finished_pages_are_kept(self):
+        import time
+        from unittest import mock
+
+        from fasttrack import web
+
+        class LLM:
+            def json(self, role, system, user, max_tokens=2048, think=None):
+                if "search query" in system:
+                    return {"query": "Hautarzt Berlin"}
+                url = "https://slow.example/" if "slow.example" in user else "https://fast.example/"
+                if "slow" in url:
+                    time.sleep(1)
+                return {"practices": [{"name": url, "url": url}]}
+
+        class Search:
+            def search(self, q, limit=5):
+                return [{"url": u, "title": "", "text": ""} for u in ("https://fast.example/", "https://slow.example/")]
+
+        with mock.patch.object(web, "EXTRACT_SECONDS", 0.3):
+            started = time.monotonic()
+            _, rows = web.web_evidence("skin", LLM(), Search())
+        self.assertLess(time.monotonic() - started, 0.8)
+        self.assertEqual([r["url"] for r in rows], ["https://fast.example/"])
+
 
 class ParallelTests(unittest.TestCase):
     def test_sql_drafts_run_concurrently(self):
         import time
 
         class Slow(FakeLLM):
-            def json(self, role, system, user, max_tokens=2048):
+            def json(self, role, system, user, max_tokens=2048, think=None):
                 if role == "sql":
                     time.sleep(0.3)
                 return super().json(role, system, user, max_tokens)

@@ -26,6 +26,9 @@ MODELS = {
     "verifier": os.environ.get("FT_MODEL_VERIFIER", "nvidia/nemotron-3.5-lightning-30b-a3b"),
 }
 FALLBACK = os.environ.get("FT_MODEL_FALLBACK", "nvidia/nemotron-3-ultra-550b-a55b")
+# Lightning roles answer without a reasoning block: a SQL draft drops from ~20 s to ~1 s, and the
+# verifier from 20-80 s with erratic verdicts to a few seconds. Ultra (answer) keeps reasoning.
+NO_THINK = {"planner", "sql", "verifier"}
 
 
 class Nemotron:
@@ -36,7 +39,7 @@ class Nemotron:
         self.http = httpx.Client(base_url=BASE, timeout=timeout)
         self.calls: list[dict] = []
 
-    def chat(self, role: str, system: str, user: str, max_tokens: int = 2048, model: str | None = None) -> str:
+    def chat(self, role: str, system: str, user: str, max_tokens: int = 2048, model: str | None = None, think: bool | None = None) -> str:
         started = time.monotonic()
         model = model or MODELS[role]
         body = {
@@ -45,6 +48,10 @@ class Nemotron:
             "temperature": 0.2,
             "max_tokens": max_tokens,
         }
+        if think is None:
+            think = role not in NO_THINK
+        if not think and model != FALLBACK:
+            body["chat_template_kwargs"] = {"enable_thinking": False}
         r = self.http.post("/chat/completions", json=body, headers={"Authorization": f"Bearer {self.key}"})
         print(f"[nemotron] {role} {model} -> {r.status_code} in {time.monotonic() - started:.1f}s", flush=True)
         r.raise_for_status()
@@ -65,12 +72,12 @@ class Nemotron:
         # Reasoning models may answer after a long reasoning block or, when cut, only inside it.
         return (message.get("content") or "") + REASONING + (message.get("reasoning_content") or "")
 
-    def json(self, role: str, system: str, user: str, max_tokens: int = 8192):
+    def json(self, role: str, system: str, user: str, max_tokens: int = 8192, think: bool | None = None):
         system = system + "\nReply with one JSON object only, no prose."
         try:
-            return parse_json(self.chat(role, system, user, max_tokens))
+            return parse_json(self.chat(role, system, user, max_tokens, think=think))
         except ValueError:
-            text = self.chat(role, system + " Do not think aloud. Output the JSON immediately.", user, max_tokens)
+            text = self.chat(role, system + " Do not think aloud. Output the JSON immediately.", user, max_tokens, think=think)
             try:
                 return parse_json(text)
             except ValueError:
@@ -89,15 +96,19 @@ def parse_json(text: str):
     decoder = json.JSONDecoder()
     for part in text.split(REASONING):
         part = re.sub(r"<think>.*?</think>", "", part, flags=re.DOTALL)
-        found = None
-        for i, ch in enumerate(part):
-            if ch in "{[":
+        found, i = None, 0
+        while i < len(part):
+            if part[i] in "{[":
                 try:
-                    value, _ = decoder.raw_decode(part, i)
+                    value, end = decoder.raw_decode(part, i)
                 except json.JSONDecodeError:
+                    i += 1
                     continue
                 if isinstance(value, dict):
                     found = value
+                i = end  # skip the object, so a nested dict never replaces its parent
+                continue
+            i += 1
         if found is not None:
             return found
     raise ValueError("model reply contained no JSON")

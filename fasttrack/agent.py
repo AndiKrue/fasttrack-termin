@@ -26,7 +26,14 @@ PLANNER = (
 SQL = (
     "Write one read-only SQL SELECT for the question, using only these tables and columns:\n"
     + SCHEMA
-    + "Use the schema-qualified names exactly as shown. No semicolon. "
+    + "Values: specialty is lower-case English (dermatology, orthopaedics, cardiology, ENT, ...); district is a "
+    "Berlin borough such as Mitte or Treptow-Köpenick, never 'Berlin'; accepts_new_patients and online_booking "
+    "are the strings 'yes' or 'no'; days_to_appointment is a number; channel is text such as 'open consultation' "
+    "or 'phone'. Join waits to practices on practice_id. Prefer simple filters (lower(specialty) = '...') over "
+    "subqueries.\n"
+    "Use the schema-qualified table names exactly as shown and give each table a short alias "
+    "(FROM FT_PRACTICES.practices p JOIN FT_WAITS.waits w ...); qualify columns with the alias only, "
+    "never as schema.table.column. No semicolon. "
     'Return {"sql": "..."}.'
 )
 ANSWER = (

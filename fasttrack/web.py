@@ -10,10 +10,14 @@ row keeps the URL it came from, and the page text is never shown as our own clai
 from __future__ import annotations
 
 import os
+from concurrent.futures import ThreadPoolExecutor, wait
 
 import httpx
 
 ENDPOINT = os.environ.get("FIRECRAWL_URL", "https://api.firecrawl.dev/v1/search")
+MAX_PAGES = 3
+MAX_CHARS = 3000
+EXTRACT_SECONDS = 20
 EXCLUDED = ("doctolib.", "jameda.", "docinsider.", "sanego.")
 EXTRACT = (
     "From the page texts, list medical practices relevant to the patient's need. Use only facts "
@@ -47,28 +51,38 @@ class FirecrawlSearch:
             url = item.get("url") or (item.get("metadata") or {}).get("sourceURL") or ""
             if not url or any(d in url for d in EXCLUDED):
                 continue
-            pages.append({"url": url, "title": item.get("title") or "", "text": (item.get("markdown") or item.get("description") or "")[:6000]})
+            pages.append({"url": url, "title": item.get("title") or "", "text": (item.get("markdown") or item.get("description") or "")[:MAX_CHARS]})
         return pages
 
 
+def _extract(question: str, llm, page: dict) -> list[dict]:
+    found = llm.json("verifier", EXTRACT, f"Patient need: {question}\nURL: {page['url']}\nTITLE: {page['title']}\n{page['text']}", max_tokens=2048, think=False)
+    return [p for p in found.get("practices", []) if isinstance(p, dict) and p.get("url") == page["url"]]
+
+
 def web_evidence(question: str, llm, search) -> tuple[str, list[dict]]:
-    """One search query from Nemotron, then extraction; returns (query, rows with url)."""
+    """One search query from Nemotron, then extraction; returns (query, rows with url).
+
+    Each page is extracted in its own call; after EXTRACT_SECONDS the answer goes ahead with
+    the rows from the pages that are done, so a slow page never holds up the whole run.
+    """
     query = llm.json(
         "sql",
         'Write one German web search query that finds statutory-insurance specialist practices for this patient (specialty, Berlin district, "offene Sprechstunde" or "neue Patienten"). Return {"query": "..."}.',
         question,
     )["query"]
-    pages = search.search(query)
+    pages = [{**p, "text": p["text"][:MAX_CHARS]} for p in search.search(query, limit=MAX_PAGES)[:MAX_PAGES]]
     if not pages:
         return query, []
-    found = llm.json(
-        "verifier",
-        EXTRACT,
-        f"Patient need: {question}\nPages: " + "\n\n".join(f"URL: {p['url']}\nTITLE: {p['title']}\n{p['text']}" for p in pages),
-        max_tokens=8192,
-    )
-    urls = {p["url"] for p in pages}
-    return query, [p for p in found.get("practices", []) if isinstance(p, dict) and p.get("url") in urls]
+    pool = ThreadPoolExecutor(max_workers=len(pages))
+    futures = [pool.submit(_extract, question, llm, p) for p in pages]
+    done, _ = wait(futures, timeout=EXTRACT_SECONDS)
+    pool.shutdown(wait=False, cancel_futures=True)
+    rows = []
+    for f in futures:  # page order, not completion order
+        if f in done and f.exception() is None:
+            rows.extend(f.result())
+    return query, rows
 
 
 def open_search():
