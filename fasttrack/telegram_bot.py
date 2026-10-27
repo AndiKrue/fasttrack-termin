@@ -20,6 +20,7 @@ from urllib.parse import quote
 import httpx
 
 from .agent import investigate
+from .env import load_env
 
 LIMIT = 4000  # Telegram allows 4096 characters per message; leave room for markup
 WELCOME = (
@@ -146,7 +147,7 @@ class Bot:
             return None
         if text.startswith("/start"):
             params = {"chat_id": chat, "text": WELCOME, "parse_mode": "HTML"}
-            url = os.environ.get("FT_MINIAPP_URL")
+            url = miniapp_url()
             if url:
                 params["reply_markup"] = {"inline_keyboard": [[{"text": "Open FastTrack app", "web_app": {"url": url}}]]}
             self.tg.call("sendMessage", **params)
@@ -200,6 +201,33 @@ class Bot:
                     print(f"[telegram] update: {self.tg.redact(exc)}", flush=True)
 
 
+def miniapp_url() -> str | None:
+    """FT_MINIAPP_URL, or the quick-tunnel host that cloudflared reports on its metrics port."""
+    url = os.environ.get("FT_MINIAPP_URL")
+    metrics = os.environ.get("FT_TUNNEL_METRICS")
+    if url or not metrics:
+        return url
+    try:
+        host = httpx.get(f"{metrics}/quicktunnel", timeout=5).json().get("hostname")
+    except Exception:  # tunnel not up yet: no mini app button this time
+        return None
+    return f"https://{host}/miniapp" if host else None
+
+
+def set_menu_button(tg: Telegram) -> None:
+    """Point the bot's menu button at the mini app, so BotFather needs no manual step."""
+    for _ in range(12):  # a fresh quick tunnel needs a few seconds to get its hostname
+        url = miniapp_url()
+        if url:
+            tg.call("setChatMenuButton", menu_button={"type": "web_app", "text": "FastTrack", "web_app": {"url": url}})
+            print(f"[telegram] mini app: {url}", flush=True)
+            return
+        if not os.environ.get("FT_TUNNEL_METRICS"):
+            return
+        time.sleep(5)
+    print("[telegram] no tunnel hostname yet; menu button unchanged", flush=True)
+
+
 def write_qr(tg: Telegram, path: str) -> str:
     link = f"https://t.me/{tg.call('getMe')['username']}"
     try:
@@ -214,6 +242,7 @@ def write_qr(tg: Telegram, path: str) -> str:
 
 def main(argv=None) -> None:
     argv = sys.argv[1:] if argv is None else argv
+    load_env()
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
     if not token:
         sys.exit("TELEGRAM_BOT_TOKEN is not set")
@@ -224,6 +253,10 @@ def main(argv=None) -> None:
     from .llm import Nemotron
 
     bot = Bot(tg, Nemotron())
+    try:
+        set_menu_button(tg)
+    except Exception as exc:  # the chat still works without the button
+        print(f"[telegram] menu button: {tg.redact(exc)}", flush=True)
     print(f"FastTrack bot polling as @{tg.call('getMe')['username']}", flush=True)
     bot.poll()
 

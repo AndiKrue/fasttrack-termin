@@ -1,0 +1,8 @@
+.env
+.env.*
+!.env.example
+.git
+runs
+**/__pycache__
+meterless/node_modules
+*.png

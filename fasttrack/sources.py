@@ -70,7 +70,7 @@ class ZetarisSource:
             "com.zetaris.lightning.jdbc.LightningDriver",
             os.environ.get("ZETARIS_JDBC_URL", "jdbc:zetaris:lightning@localhost:10000"),
             [os.environ["ZETARIS_USER"], os.environ["ZETARIS_PASSWORD"]],
-            jars=os.environ["ZETARIS_JDBC_JAR"],
+            jars=_jars(os.environ["ZETARIS_JDBC_JAR"]),
         )
 
     def query(self, sql: str) -> list[dict]:
@@ -81,6 +81,12 @@ class ZetarisSource:
             return [dict(zip(names, row)) for row in cur.fetchmany(MAX_ROWS)]
         finally:
             cur.close()
+
+
+def _jars(path: str) -> list[str]:
+    """The driver jar, or every jar in a directory (the compose mount)."""
+    p = Path(path)
+    return sorted(str(j) for j in p.glob("*.jar")) if p.is_dir() else [path]
 
 
 def _typed(value: str):

@@ -29,6 +29,10 @@ def driver_container(platform: str) -> str:
 
 
 def main():
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from fasttrack.env import load_env
+
+    load_env()
     platform = os.environ.get("ZETARIS_PLATFORM", r"C:\Tools\zetaris-platform")
     cid = driver_container(platform)
     subprocess.run(["docker", "exec", cid, "mkdir", "-p", TARGET], check=True)

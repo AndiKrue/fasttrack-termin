@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from .env import load_env
 from .agent import investigate
 from .llm import Nemotron
 
@@ -110,6 +111,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    load_env()
     Handler.llm = Nemotron()
     port = int(os.environ.get("FT_PORT", "8765"))
     print(f"FastTrack Termin on http://127.0.0.1:{port}")
