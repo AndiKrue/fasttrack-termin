@@ -1,0 +1,165 @@
+# FastTrack Termin
+
+**The fastest route to a specialist appointment, with the evidence behind every reason.**
+
+FastTrack Termin helps statutory-insurance patients in Berlin compare routes to a specialist appointment. It brings appointment-system rules, a practice directory and waiting-time observations into one agent workflow. Each retained recommendation includes a reason and evidence IDs that resolve to the exact SQL query and result rows.
+
+Built for the **Open Agent Hackathon 2026**, Track 02 **"The Agent That Can Explain Why"**, and the **NVIDIA Nemotron prize**.
+
+> **Demo data:** practices and waiting times are **SAMPLE data**, not live availability or promised waiting times. This is not medical advice. **In an emergency, call 112.**
+
+## How it works
+
+The workflow is implemented in [fasttrack/agent.py](fasttrack/agent.py).
+
+```mermaid
+flowchart TD
+    Patient["Patient question"] --> Plan["Plan source questions"]
+    Plan --> SQL["Generate read-only SQL"]
+    Rules["FT_RULES.rules"] --> SQL
+    Practices["FT_PRACTICES.practices · SAMPLE"] --> SQL
+    Waits["FT_WAITS.waits · SAMPLE"] --> SQL
+    SQL --> Rows["Zetaris JDBC results: evidence IDs, SQL and rows"]
+    Rows --> Recall["Recall earlier findings from H-MEM"]
+    Memory["Meterless H-MEM: provenance and ledger"] --> Recall
+    Recall --> Answer["Answer: rank routes and cite evidence"]
+    Answer --> Verifier["Verifier: check routes against cited rows"]
+    Rows --> Verifier
+    Verifier --> Kept["Keep supported routes with valid citations"]
+    Kept --> Result["Display routes, reasons and evidence"]
+    Kept --> Remember["Remember retained findings"]
+    Remember --> Memory
+```
+
+1. **Plan:** Nemotron identifies the questions needed to answer the patient.
+2. **Query:** a SQL-generation call produces a SELECT for each question. Results receive IDs such as `E1`, paired with their SQL and row. Query failures are recorded in the trace.
+3. **Recall:** memory supplies earlier findings as context for the answer.
+4. **Answer:** Nemotron ranks proposed routes, explains why and cites evidence IDs.
+5. **Verify:** another model call checks each route against its cited rows. Unknown evidence IDs are stripped; routes are retained only when selected by the verifier and backed by at least one valid citation.
+6. **Remember:** retained findings are sent to memory for later questions.
+
+The response includes the source and memory backend names, a workflow trace and model-call metadata. The UI displays each retained route with its reason, cited SQL and evidence rows. Verification is model-based; it is not a guarantee of factual correctness. The route verifier does not separately verify the answer's caveats.
+
+## Sponsor technology
+
+### Zetaris: federated SQL over three logical databases
+
+[fasttrack/sources.py](fasttrack/sources.py) connects to Zetaris Lightning through JDBC. The agent uses the same schema-qualified SQL across these sources:
+
+| Logical table | Seed file | Purpose |
+| --- | --- | --- |
+| `FT_RULES.rules` | [rules.csv](data/seed/rules.csv) | Appointment-system rules and their listed legal basis |
+| `FT_PRACTICES.practices` | [practices.csv](data/seed/practices.csv) | SAMPLE practice directory |
+| `FT_WAITS.waits` | [waits.csv](data/seed/waits.csv) | SAMPLE waiting-time observations, linked by practice ID |
+
+[zetaris/register.py](zetaris/register.py) copies the CSV files into the platform's `driver` container, registers one Lightning database and filestore table per source, and reads back row counts over JDBC. This demo federates CSV-backed sources; it does not connect to live practice booking systems.
+
+### Meterless: H-MEM with provenance and a ledger
+
+The H-MEM reference implementation is **vendored unmodified** from [Meterless/Meterless](https://github.com/Meterless/Meterless), under Apache-2.0, in [meterless/hmem](meterless/hmem). Its pinned revision is recorded in [UPSTREAM_COMMIT](meterless/hmem/UPSTREAM_COMMIT).
+
+The project's [TypeScript bridge](meterless/bridge.ts) connects Python to H-MEM using JSON over stdin/stdout. It stores a retained route and reason with a run tag and a `fasttrack:<run_id>` source. H-MEM persists state and its ledger under `runs/hmem` by default; `FT_HMEM_DIR` overrides that directory. Recall returns matching memories with their source and relevance.
+
+The current H-MEM bridge stores route text and run-level provenance, rather than the full evidence-row payload. The agent response carries the cited SQL and rows. The JSONL fallback stores the full record, including that evidence.
+
+### NVIDIA Nemotron: a model for each role
+
+[fasttrack/llm.py](fasttrack/llm.py) calls NVIDIA's OpenAI-compatible API at `https://integrate.api.nvidia.com/v1`. Its defaults are:
+
+| Role | Model |
+| --- | --- |
+| Planner | Lightning 30B: `nvidia/nemotron-3.5-lightning-30b-a3b` |
+| SQL generation | Lightning 30B: `nvidia/nemotron-3.5-lightning-30b-a3b` |
+| Answer | Ultra 550B: `nvidia/nemotron-3-ultra-550b-a55b` |
+| Verifier | Lightning 30B: `nvidia/nemotron-3.5-lightning-30b-a3b` |
+
+The planner chooses what to investigate, SQL generation translates those questions, Ultra produces the ranked explanation, and the verifier checks its routes against cited evidence. Model-call metadata records the role, model, elapsed seconds and token usage when returned by the API.
+
+Override roles with `FT_MODEL_PLANNER`, `FT_MODEL_SQL`, `FT_MODEL_ANSWER` and `FT_MODEL_VERIFIER`. `NVIDIA_BASE_URL` overrides the API base URL. Your NVIDIA API account must have access to the configured models.
+
+## Setup
+
+### Prerequisites and configuration
+
+Use Python, Node.js with npm, a Java runtime for JDBC, and Docker with the Compose plugin. Obtain the **Zetaris platform kit and Lightning JDBC driver JAR separately**; this repository does not include the platform's Docker Compose configuration or driver.
+
+Clone this repository and open a terminal at its root. Set the following environment variables in the shell that will run registration and the app. Supply your own credentials privately; do not commit them.
+
+| Variable | Value or purpose |
+| --- | --- |
+| `NVIDIA_API_KEY` | NVIDIA API credential, required by the app |
+| `ZETARIS_USER` | Your Zetaris platform user |
+| `ZETARIS_PASSWORD` | Your Zetaris platform password |
+| `ZETARIS_JDBC_JAR` | Local path to the Lightning JDBC driver JAR; also selects the Zetaris backend |
+| `ZETARIS_PLATFORM` | Local directory containing the platform kit's Compose project, used by registration |
+
+The default JDBC URL is `jdbc:zetaris:lightning@localhost:10000`; override it with `ZETARIS_JDBC_URL` if needed. Registration defaults to `C:\Tools\zetaris-platform` when `ZETARIS_PLATFORM` is absent, so set it explicitly for another location.
+
+### Install dependencies
+
+From the repository root:
+
+```sh
+pip install httpx jaydebeapi
+cd meterless
+npm install
+cd ..
+```
+
+The Node dependency runs the H-MEM bridge through `tsx`.
+
+### Start Zetaris and register the sources
+
+In the separately supplied Zetaris platform directory, start its Compose project:
+
+```sh
+docker compose up -d
+docker compose ps
+```
+
+Wait for the platform to be ready and its `driver` service to be running. Return to this repository's root, with the configuration above available, then run:
+
+```sh
+python zetaris/register.py
+```
+
+Check the reported counts for all three tables. Registration prints creation errors as `SKIP` before attempting the count queries; inspect those messages rather than assuming registration succeeded.
+
+### Run the app
+
+From the repository root:
+
+```sh
+python -m fasttrack.app
+```
+
+Open **[http://127.0.0.1:8765](http://127.0.0.1:8765)**. The server binds to loopback. `FT_PORT` overrides the port. Stop the foreground server with Ctrl+C.
+
+The page contains an example question about an orthopaedics appointment in Köpenick with a GP referral but no urgency code. Edit it, select **Find the fastest route**, then inspect the proposed routes, reasons and evidence rows. The footer identifies the active source and memory backends.
+
+### Fallbacks and tests
+
+Without `ZETARIS_JDBC_JAR`, the agent uses an in-memory SQLite stand-in with the same three logical schemas and seed files. H-MEM is selected when its bridge and local `tsx` executable are available. Set `FT_MEMORY=local`, or omit the bridge installation, to use `runs/memory.jsonl` instead. A runtime H-MEM bridge error is reported; it does not silently switch to JSONL.
+
+These fallbacks support development, but do not demonstrate the live Zetaris/H-MEM integration. The app still requires NVIDIA API access.
+
+Run the offline unit tests from the repository root:
+
+```sh
+python -m unittest tests.test_agent
+```
+
+The tests use a fake model, SQLite and temporary JSONL memory. They cover cross-schema querying and citation filtering, the SQL guard, memory recall and JSON parsing. They do not test live NVIDIA, Zetaris or H-MEM services.
+
+## Data and limitations
+
+- **Practices and waiting times are SAMPLE data.** They are not verified practice listings, live appointment slots or guaranteed waiting periods.
+- Rules cite the legal basis listed in [data/seed/rules.csv](data/seed/rules.csv). The application queries those seed rules; it does not retrieve or validate current legislation.
+- Recommendations depend on the supplied data and model output. The app recommends routes; it does not book appointments.
+- **Not medical advice. In emergencies, call 112.**
+
+## Licences
+
+- FastTrack Termin application code and integration bridge: **GNU AGPL-3.0-or-later**, as marked in the source headers. See [LICENSE](LICENSE).
+- Vendored Meterless H-MEM: **Apache License 2.0**. See its [LICENSE](meterless/hmem/LICENSE), [NOTICE](meterless/hmem/NOTICE) and [upstream revision](meterless/hmem/UPSTREAM_COMMIT).
+- The separately supplied Zetaris platform, JDBC driver and NVIDIA API/models remain subject to their respective providers' terms.
