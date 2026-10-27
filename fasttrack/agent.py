@@ -14,6 +14,7 @@ import uuid
 
 from .memory import open_memory, stamp
 from .sources import SCHEMA, open_source
+from .web import open_search, web_evidence
 
 PLANNER = (
     "You help statutory-insurance patients in Berlin reach a specialist appointment fast. "
@@ -29,7 +30,8 @@ SQL = (
 )
 ANSWER = (
     "Recommend the fastest routes to a specialist appointment for this patient, best first. "
-    "Use only the evidence rows given; cite them by id. Say plainly when data are sample data. "
+    "Use only the evidence rows given; cite them by id. Prefer real practices from web rows (they carry a url) "
+    "over SAMPLE rows, and say plainly when a fact comes from sample data. "
     "Never give medical advice; in an emergency point to 112. "
     'Return {"routes": [{"route": "...", "expected_days": number or null, '
     '"why": "...", "evidence": ["E1", ...]}], "caveats": ["..."]}.'
@@ -41,7 +43,7 @@ VERIFY = (
 )
 
 
-def investigate(question: str, llm, source=None, memory=None) -> dict:
+def investigate(question: str, llm, source=None, memory=None, search=None) -> dict:
     source = source or open_source()
     memory = memory or open_memory()
     run_id = uuid.uuid4().hex[:8]
@@ -66,6 +68,18 @@ def investigate(question: str, llm, source=None, memory=None) -> dict:
             ids.append(eid)
         queries.append({"question": q, "sql": sql, "evidence": ids})
     trace["steps"].append({"step": "query", "queries": queries})
+
+    search = open_search() if search is None else (search or None)
+    if search is not None:
+        try:
+            web_query, practices = web_evidence(question, llm, search)
+            for row in practices:
+                eid = f"E{len(evidence) + 1}"
+                evidence[eid] = {"sql": f"web search: {web_query}", "url": row.get("url"), "row": row}
+            trace["steps"].append({"step": "web", "query": web_query, "practices": len(practices)})
+        except Exception as exc:  # the web is optional evidence, never fatal
+            trace["steps"].append({"step": "web", "error": f"{type(exc).__name__}: {exc}"[:300]})
+    trace["web"] = getattr(search, "name", None)
 
     recalled = memory.recall(question)
     trace["steps"].append({"step": "recall", "records": len(recalled)})

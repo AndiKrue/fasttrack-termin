@@ -37,10 +37,10 @@ document.getElementById('go').onclick=async()=>{
     b.append(el('h3',(i+1)+'. '+x.route));
     if(x.expected_days!==null&&x.expected_days!==undefined)b.append(el('p','Expected: about '+x.expected_days+' days','days'));
     b.append(el('p','Why: '+x.why));
-    x.evidence.forEach(e=>{const v=d.evidence[e];b.append(el('pre',e+'  '+v.sql+'\\n'+JSON.stringify(v.row),'ev'))});
+    x.evidence.forEach(e=>{const v=d.evidence[e];const pre=el('pre',e+'  '+v.sql+'\\n'+JSON.stringify(v.row),'ev');b.append(pre);if(v.url){const a=el('a',v.url);a.href=v.url;a.target='_blank';a.rel='noopener';b.append(a)}});
     out.append(b)});
   (d.caveats||[]).forEach(c=>out.append(el('p','Note: '+c,'muted')));
-  out.append(el('p','Run '+d.run_id+' | source '+d.trace.source+' | memory '+d.trace.memory+' | '+d.model_calls.length+' Nemotron calls','muted'));
+  out.append(el('p','Run '+d.run_id+' | source '+d.trace.source+' | web '+(d.trace.web||'off')+' | memory '+d.trace.memory+' | '+d.model_calls.length+' Nemotron calls','muted'));
 };
 </script></body></html>"""
 

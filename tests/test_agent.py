@@ -29,7 +29,7 @@ class FakeLLM:
 class AgentTests(unittest.TestCase):
     def test_federated_join_and_citations(self):
         with tempfile.TemporaryDirectory() as d:
-            out = investigate("knee, Köpenick", FakeLLM(), LocalSource(), LocalStore(Path(d) / "m.jsonl"))
+            out = investigate("knee, Köpenick", FakeLLM(), LocalSource(), LocalStore(Path(d) / "m.jsonl"), search=False)
             self.assertEqual([r["route"] for r in out["routes"]], ["Open consultation"])  # uncited route dropped
             self.assertEqual(out["routes"][0]["evidence"], ["E1"])  # unknown id stripped
             self.assertIn("FT_WAITS.waits", out["evidence"]["E1"]["sql"])
@@ -48,3 +48,21 @@ class AgentTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WebEvidenceTests(unittest.TestCase):
+    def test_rows_keep_only_real_page_urls_and_skip_booking_portals(self):
+        from fasttrack.web import FirecrawlSearch, web_evidence
+
+        class LLM:
+            def json(self, role, system, user, max_tokens=2048):
+                if "search query" in system:
+                    return {"query": "Orthopäde Köpenick offene Sprechstunde"}
+                return {"practices": [{"name": "A", "url": "https://praxis-a.example/"}, {"name": "Ghost", "url": "https://nowhere.example/"}]}
+
+        search = FirecrawlSearch(key="test")
+        search.http = None
+        search.search = lambda q, limit=5: [{"url": "https://praxis-a.example/", "title": "A", "text": "Offene Sprechstunde Mo 8-10"}]
+        query, rows = web_evidence("knee Köpenick", LLM(), search)
+        self.assertEqual([r["name"] for r in rows], ["A"])
+        self.assertIn("Köpenick", query)
