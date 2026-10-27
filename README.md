@@ -14,7 +14,12 @@ The workflow is implemented in [fasttrack/agent.py](fasttrack/agent.py).
 
 ```mermaid
 flowchart TD
-    Patient["Patient question"] --> Plan["Plan source questions"]
+    Patient["Patient question"] --> Browser["Web UI: /"]
+    Patient --> Bot["Telegram: @FastTrackTerminBot"]
+    Patient --> Mini["Telegram mini app: /miniapp"]
+    Browser --> Plan["Plan source questions"]
+    Bot --> Plan
+    Mini --> Plan
     Plan --> SQL["Generate read-only SQL"]
     Rules["FT_RULES.rules"] --> SQL
     Practices["FT_PRACTICES.practices · SAMPLE"] --> SQL
@@ -31,6 +36,9 @@ flowchart TD
     Rows --> Verifier
     Verifier --> Kept["Keep supported routes with valid citations"]
     Kept --> Result["Display routes, reasons, evidence and source links"]
+    Result --> Browser
+    Result --> Bot
+    Result --> Mini
     Kept --> Remember["Remember retained findings"]
     Remember --> Memory
 ```
@@ -94,20 +102,68 @@ Booking portals excluded from automated access are **doctolib, jameda, docinside
 
 ## Setup
 
-### Prerequisites and configuration
+### Run with Docker
+
+From the repository root, copy the template and fill in your credentials privately:
+
+```sh
+cp .env.example .env
+```
+
+PowerShell equivalent: `Copy-Item .env.example .env`. Fill `NVIDIA_API_KEY`, `FIRECRAWL_API_KEY` for live web evidence, and `TELEGRAM_BOT_TOKEN` for the bot. **`.env` is git-ignored and must never be committed.** Do not print or publish keys or the bot token.
+
+Start the services using Docker with Compose:
+
+```sh
+docker compose up --build -d
+docker compose ps
+```
+
+| Service | Purpose |
+| --- | --- |
+| `app` | Web UI at [http://127.0.0.1:8765](http://127.0.0.1:8765) |
+| `tunnel` | Cloudflare quick tunnel exposing the app through public HTTPS |
+| `bot` | Telegram chat interface for [@FastTrackTerminBot](https://t.me/FastTrackTerminBot) |
+
+The shared app/bot image contains **Python 3.12, JRE 17** for the Zetaris JDBC driver, and **Node.js** for the Meterless H-MEM bridge. State under `runs/` is mounted from the host. The tunnel makes the app publicly reachable while it runs.
+
+Compose reaches an existing host Zetaris platform at `host.docker.internal:10000`; it does not start Zetaris. Leave `ZETARIS_JDBC_JAR` empty for the local SQLite stand-in. To use Zetaris, set it non-empty, supply `ZETARIS_USER` and `ZETARIS_PASSWORD`, and set `ZETARIS_JDBC_DIR` to the host directory containing the driver JARs. Compose mounts that directory read-only and uses `/zetaris/jdbc` inside the containers. Register the sources using the manual Zetaris steps below before asking questions.
+
+The bot reads the quick-tunnel hostname from cloudflared metrics at `http://tunnel:20241/quicktunnel` and sets its mini app menu button automatically. `FT_MINIAPP_URL` can override the mini app URL. Stop the services with `docker compose down`.
+
+### Use it: web, Telegram and mini app
+
+- **Web:** open [http://127.0.0.1:8765](http://127.0.0.1:8765), describe your specialist need, district and referral, then watch the live step timeline. The UI consumes NDJSON from `/ask/stream`. Route cards show expected days when provided and the reason; evidence chips reveal the SQL or web query and its row. Web rows link their source.
+- **Act on cited details:** a cited row with a phone number enables a **Call** (`tel:`) button. An address enables **Route (OSM)** and **Route (Google)** buttons. **Use my location** optionally requests your position and uses Nominatim to geocode practice addresses for approximate straight-line distance, not travel time.
+- **Telegram:** open [@FastTrackTerminBot](https://t.me/FastTrackTerminBot), select Start and ask your question. One status message is edited as agent steps finish; route messages follow with reasons, expected days when provided, and phone numbers, map and source links when present in cited rows.
+- **Mini app:** use the bot's **FastTrack** menu button or **Open FastTrack app** button. `/miniapp` runs the same streamed flow inside Telegram, applies Telegram theme colours and uses its main button to submit a question.
+
+For QR onboarding, install the host Python dependencies from `requirements.txt`, then run from the repository root with `TELEGRAM_BOT_TOKEN` in `.env` or the environment:
+
+```sh
+pip install -r requirements.txt
+python -m fasttrack.telegram_bot --qr bot-qr.png
+```
+
+Scan the generated QR to open [t.me/FastTrackTerminBot](https://t.me/FastTrackTerminBot) for the configured bot. The helper obtains the username from Telegram rather than hard-coding it. The `.env` loader prints no values; Telegram errors redact the bot token.
+
+### Manual setup: prerequisites and configuration
 
 Use Python, Node.js with npm, a Java runtime for JDBC, and Docker with the Compose plugin. Obtain the **Zetaris platform kit and Lightning JDBC driver JAR separately**; this repository does not include the platform's Docker Compose configuration or driver.
 
-Clone this repository and open a terminal at its root. Set the following environment variables in the shell that will run registration and the app. Supply your own credentials privately; do not commit them.
+Clone this repository and open a terminal at its root. The app and bot load the git-ignored `.env`; already-set environment variables take precedence. Registration reads the shell environment, so export its Zetaris settings there. Supply your own credentials privately; do not commit them.
 
 | Variable | Value or purpose |
 | --- | --- |
 | `NVIDIA_API_KEY` | NVIDIA API credential, required by the app |
 | `FIRECRAWL_API_KEY` | Firecrawl credential; enables optional live web evidence |
 | `FIRECRAWL_URL` | Optional full search endpoint URL for self-hosted Firecrawl; defaults to `https://api.firecrawl.dev/v1/search` |
+| `TELEGRAM_BOT_TOKEN` | Telegram bot credential, required for the bot and QR helper |
+| `FT_MINIAPP_URL` | Optional HTTPS mini app URL; Compose discovers the tunnel URL automatically |
 | `ZETARIS_USER` | Your Zetaris platform user |
 | `ZETARIS_PASSWORD` | Your Zetaris platform password |
-| `ZETARIS_JDBC_JAR` | Local path to the Lightning JDBC driver JAR; also selects the Zetaris backend |
+| `ZETARIS_JDBC_JAR` | Host run: Lightning JDBC JAR path or JAR directory. Compose: non-empty selects Zetaris; empty selects SQLite |
+| `ZETARIS_JDBC_DIR` | Host directory of JDBC JARs mounted by Compose |
 | `ZETARIS_PLATFORM` | Local directory containing the platform kit's Compose project, used by registration |
 
 The default JDBC URL is `jdbc:zetaris:lightning@localhost:10000`; override it with `ZETARIS_JDBC_URL` if needed. Registration defaults to `C:\Tools\zetaris-platform` when `ZETARIS_PLATFORM` is absent, so set it explicitly for another location.
@@ -150,7 +206,7 @@ From the repository root:
 python -m fasttrack.app
 ```
 
-Open **[http://127.0.0.1:8765](http://127.0.0.1:8765)**. The server binds to loopback. `FT_PORT` overrides the port. Stop the foreground server with Ctrl+C.
+Open **[http://127.0.0.1:8765](http://127.0.0.1:8765)**. Host runs bind to loopback by default; `FT_HOST` and `FT_PORT` override the bind address and port. Compose binds the app inside its container and publishes the host port on loopback, while the tunnel supplies public HTTPS. Stop a foreground host server with Ctrl+C.
 
 The page contains an example question about an orthopaedics appointment in Köpenick with a GP referral but no urgency code. Edit it, select **Find the fastest route**, then inspect the proposed routes, reasons and evidence rows. When web evidence is enabled, follow its source links to inspect the original pages. The footer identifies the active source, web and memory backends.
 
@@ -181,4 +237,4 @@ The tests use a fake model, SQLite and temporary JSONL memory. They cover cross-
 
 - FastTrack Termin application code and integration bridge: **GNU AGPL-3.0-or-later**, as marked in the source headers. See [LICENSE](LICENSE).
 - Vendored Meterless H-MEM: **Apache License 2.0**. See its [LICENSE](meterless/hmem/LICENSE), [NOTICE](meterless/hmem/NOTICE) and [upstream revision](meterless/hmem/UPSTREAM_COMMIT).
-- The separately supplied Zetaris platform, JDBC driver, NVIDIA API/models and Firecrawl service remain subject to their respective providers' terms.
+- The separately supplied Zetaris platform, JDBC driver, NVIDIA API/models, Firecrawl, Telegram, Cloudflare and map services remain subject to their respective providers' terms.
