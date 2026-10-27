@@ -25,13 +25,19 @@ if NIGHTSHIFT and not NIGHTSHIFT.endswith("/v1"):
     NIGHTSHIFT += "/v1"
 BASE = NIGHTSHIFT or os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
 PROVIDER = "meterless-nightshift" if NIGHTSHIFT else "nvidia-api"
-MODELS = {
-    "planner": os.environ.get("FT_MODEL_PLANNER", "nvidia/nemotron-3.5-lightning-30b-a3b"),
-    "sql": os.environ.get("FT_MODEL_SQL", "nvidia/nemotron-3.5-lightning-30b-a3b"),
-    "answer": os.environ.get("FT_MODEL_ANSWER", "nvidia/nemotron-3-ultra-550b-a55b"),
-    "verifier": os.environ.get("FT_MODEL_VERIFIER", "nvidia/nemotron-3.5-lightning-30b-a3b"),
+# Under Nightshift every role asks for a meterless/* route (METERLESS_MODEL, default meterless/auto; pin a
+# Nemotron-backed lane per role with FT_MODEL_*). The model Nightshift actually used is recorded per call.
+_DEFAULT = {
+    "planner": "nvidia/nemotron-3.5-lightning-30b-a3b",
+    "sql": "nvidia/nemotron-3.5-lightning-30b-a3b",
+    "answer": "nvidia/nemotron-3-ultra-550b-a55b",
+    "verifier": "nvidia/nemotron-3.5-lightning-30b-a3b",
+    "fallback": "nvidia/nemotron-3-ultra-550b-a55b",
 }
-FALLBACK = os.environ.get("FT_MODEL_FALLBACK", "nvidia/nemotron-3-ultra-550b-a55b")
+if NIGHTSHIFT:
+    _DEFAULT = {role: os.environ.get("METERLESS_MODEL", "meterless/auto") for role in _DEFAULT}
+MODELS = {role: os.environ.get(f"FT_MODEL_{role.upper()}", _DEFAULT[role]) for role in ("planner", "sql", "answer", "verifier")}
+FALLBACK = os.environ.get("FT_MODEL_FALLBACK", _DEFAULT["fallback"])
 # Lightning roles answer without a reasoning block: a SQL draft drops from ~20 s to ~1 s, and the
 # verifier from 20-80 s with erratic verdicts to a few seconds. Ultra (answer) keeps reasoning.
 NO_THINK = {"planner", "sql", "verifier"}
@@ -40,9 +46,9 @@ NO_THINK = {"planner", "sql", "verifier"}
 class Nemotron:
     def __init__(self, key: str | None = None, timeout: float = 120):
         if NIGHTSHIFT:
-            self.key = key or os.environ.get("METERLESS_TOKEN", "")
+            self.key = key or os.environ.get("METERLESS_RUNTIME_TOKEN") or os.environ.get("METERLESS_TOKEN", "")
             if not self.key or self.key == "rt-local":  # rt-local is the docs' placeholder, not a token
-                raise RuntimeError("METERLESS_TOKEN (the Nightshift runtime token) is not set")
+                raise RuntimeError("METERLESS_RUNTIME_TOKEN (the Nightshift Console API key) is not set")
             self.headers = {"Authorization": f"Bearer {self.key}", "meterless-app": "fasttrack-termin", "meterless-scope": "user"}
         else:
             self.key = key or os.environ.get("NVIDIA_API_KEY", "")
@@ -64,7 +70,7 @@ class Nemotron:
         }
         if think is None:
             think = role not in NO_THINK
-        if not think and model != FALLBACK:
+        if not think and model == MODELS[role]:  # the fallback retry keeps its reasoning
             body["chat_template_kwargs"] = {"enable_thinking": False}
         r = self.http.post("/chat/completions", json=body, headers=self.headers)
         print(f"[nemotron] {role} {model} via {self.provider} -> {r.status_code} in {time.monotonic() - started:.1f}s", flush=True)
@@ -76,6 +82,7 @@ class Nemotron:
                 "role": role,
                 "model": model,
                 "provider": self.provider,
+                "served_model": data.get("model"),
                 "seconds": round(time.monotonic() - started, 2),
                 "tokens_in": usage.get("prompt_tokens"),
                 "tokens_out": usage.get("completion_tokens"),

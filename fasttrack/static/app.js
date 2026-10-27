@@ -313,7 +313,7 @@ function renderResult(r) {
     table.append(head);
     for (const m of r.model_calls) {
       const tr = el("tr");
-      for (const v of [m.role, String(m.model || "").replace(/^nvidia\//, "") + (m.provider ? ` via ${m.provider}` : ""), m.seconds, `${m.tokens_in ?? "?"}/${m.tokens_out ?? "?"}`]) tr.append(el("td", null, v));
+      for (const v of [m.role, String(m.model || "").replace(/^nvidia\//, "") + (m.served_model && m.served_model !== m.model ? ` → ${m.served_model}` : "") + (m.provider ? ` via ${m.provider}` : ""), m.seconds, `${m.tokens_in ?? "?"}/${m.tokens_out ?? "?"}`]) tr.append(el("td", null, v));
       table.append(tr);
     }
     c.append(table);

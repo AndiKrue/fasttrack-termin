@@ -39,7 +39,7 @@ class NightshiftTest(unittest.TestCase):
             seen["headers"] = request.headers
             return httpx.Response(200, json={"choices": [{"message": {"content": '{"ok": 1}'}, "finish_reason": "stop"}]})
 
-        env = {"METERLESS_BASE_URL": "http://host.docker.internal:8088", "METERLESS_TOKEN": "t0k"}
+        env = {"METERLESS_BASE_URL": "http://host.docker.internal:8088", "METERLESS_RUNTIME_TOKEN": "t0k"}
         try:
             with mock.patch.dict(os.environ, env):
                 mod = importlib.reload(llm)
@@ -50,6 +50,7 @@ class NightshiftTest(unittest.TestCase):
             self.assertEqual(seen["headers"]["meterless-app"], "fasttrack-termin")
             self.assertEqual(seen["headers"]["authorization"], "Bearer t0k")
             self.assertEqual(bot.calls[0]["provider"], "meterless-nightshift")
+            self.assertEqual(bot.calls[0]["model"], "meterless/auto")
         finally:
             importlib.reload(llm)
 
