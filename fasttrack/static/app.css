@@ -98,3 +98,11 @@ details.trace pre { white-space: pre-wrap; font-size: .8rem; background: #f7fafc
 .acute { border-left: 4px solid var(--warn); }
 .acute h2 { margin: 0 0 6px; font-size: 1.05rem; }
 .acute ul { margin: 0; padding-left: 20px; }
+.mic.listening { background: #fdecec; color: #b42318; border-color: #b42318; }
+.mic.listening::before { content: "● "; animation: blink 1s infinite; }
+@keyframes blink { 50% { opacity: .2; } }
+@media (prefers-reduced-motion: reduce) { .mic.listening::before { animation: none; } }
+.speak { font-size: .85rem; padding: 6px 12px; margin: 6px 0; }
+.resulthead { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.resulthead h2 { margin: 0; font-size: 1.1rem; }
+button:focus-visible, a:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }

@@ -36,6 +36,11 @@ pre{white-space:pre-wrap;word-break:break-word;background:var(--card);padding:.5
 a{color:var(--link)}
 .err{color:#dc2626}
 footer{margin-top:1.2rem}
+button:focus-visible,a:focus-visible{outline:3px solid var(--link);outline-offset:2px}
+.mic.listening{background:#fdecec;color:#b42318;border-color:#b42318}
+.mic.listening::before{content:"CF  ";animation:pulse 1s infinite}
+@media (prefers-reduced-motion:reduce){.mic.listening::before{animation:none}}
+.rhead{display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap}
 .map{display:block;width:100%;height:220px;border:0;border-radius:10px;margin-top:.5rem}
 .acute{border-left:4px solid #b45309}.acute h2{font-size:1rem;margin:0 0 .3rem}.acute ul{margin:0;padding-left:1.1rem}
 </style>
@@ -45,6 +50,7 @@ footer{margin-top:1.2rem}
 <p class="muted">Fastest route to a specialist appointment in Berlin for statutory-insurance patients, with the reason and the evidence for each step.</p>
 <label for="q" class="muted">Your situation</label>
 <textarea id="q">I live in Köpenick, have knee pain for three weeks and a referral from my GP without urgency code. How do I get an orthopaedics appointment fastest?</textarea>
+<div class="row" id="microw"></div>
 <div class="chips" id="chips"></div>
 <button class="act" id="fallback" hidden>Find fastest route</button>
 <ul class="timeline" id="timeline" hidden></ul>
@@ -110,6 +116,58 @@ function mapSrc(address) {
 }
 let lastQuestion = "";
 
+// Speech: Web Speech API only, started by the user, never auto-played.
+const SPEECH_LANG = /^de/i.test(navigator.language || "") ? "de-DE" : "en-US";
+let speakingBtn = null;
+function routeSpeech(x, p) {
+  const parts = [x.route + "."];
+  if (x.expected_days !== null && x.expected_days !== undefined) parts.push("About " + x.expected_days + " days.");
+  if (x.why) parts.push(x.why);
+  if (p && p.name) parts.push("Practice: " + p.name + ".");
+  if (p && p.phone) parts.push("Phone: " + p.phone + ".");
+  return parts.join(" ");
+}
+function stopReading() { if (!speakingBtn) return; speakingBtn.setAttribute("aria-pressed", "false"); speakingBtn.textContent = "Read aloud"; speakingBtn = null; }
+function readAloudButton(label, text) {
+  const b = el("button", "Read aloud", "act ghost"); b.type = "button";
+  b.setAttribute("aria-label", label); b.setAttribute("aria-pressed", "false");
+  if (!("speechSynthesis" in window)) { b.hidden = true; return b; }
+  b.onclick = () => {
+    const again = speakingBtn === b;
+    speechSynthesis.cancel(); stopReading();
+    if (again) return; // second press stops
+    const u = new SpeechSynthesisUtterance(text()); u.lang = SPEECH_LANG;
+    u.onend = u.onerror = () => { if (speakingBtn === b) stopReading(); };
+    speakingBtn = b; b.setAttribute("aria-pressed", "true"); b.textContent = "Stop reading";
+    speechSynthesis.speak(u);
+  };
+  return b;
+}
+function practiceRow(x, result) {
+  for (const id of x.evidence || []) {
+    const row = Object.fromEntries(Object.entries(((result.evidence || {})[id] || {}).row || {}).map(([k, v]) => [k.toLowerCase(), v]));
+    if (row.phone || row.address) return row;
+  }
+  return null;
+}
+(function micButton() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return; // unsupported: no button
+  const mic = el("button", "Speak", "act ghost mic"); mic.type = "button";
+  mic.setAttribute("aria-label", "Speak your question"); mic.setAttribute("aria-pressed", "false");
+  let rec = null;
+  const done = () => { rec = null; mic.setAttribute("aria-pressed", "false"); mic.classList.remove("listening"); mic.textContent = "Speak"; };
+  mic.onclick = () => {
+    if (rec) { rec.stop(); return; }
+    rec = new SR(); rec.lang = SPEECH_LANG; rec.interimResults = true;
+    rec.onresult = (e) => { $("q").value = [...e.results].map((r) => r[0].transcript).join(""); }; // interim, then final; never submits
+    rec.onend = done; rec.onerror = done;
+    rec.start();
+    mic.setAttribute("aria-pressed", "true"); mic.classList.add("listening"); mic.textContent = "Listening… tap to stop";
+  };
+  $("microw").append(mic);
+})();
+
 // Timeline: one row per agent step, marked running/done from the NDJSON stream.
 const STEPS = [["plan", "Planning"], ["query", "Zetaris sources"], ["web", "Web search"], ["recall", "Memory (H-MEM)"], ["verify", "Verify"]];
 function resetTimeline() {
@@ -164,12 +222,14 @@ async function fillDistances(targets) {
 function render(result) {
   const out = $("out"); out.replaceChildren();
   if (!result.routes || !result.routes.length) out.append(el("p", "No route could be backed by evidence for this question.", "muted"));
+  else { const head = el("div", undefined, "rhead"); head.append(el("strong", "Fastest routes"), readAloudButton("Read all routes aloud", () => result.routes.map((r) => routeSpeech(r, practiceRow(r, result))).join(" "))); out.append(head); }
   const geoTargets = [];
   result.routes.forEach((x, i) => {
     const card = el("div", undefined, "card");
     card.append(el("h3", (i + 1) + ". " + x.route));
     if (x.expected_days !== null && x.expected_days !== undefined) card.append(el("div", "Expected: about " + x.expected_days + " days", "days"));
     card.append(el("p", "Why: " + x.why));
+    card.append(readAloudButton("Read route " + (i + 1) + " aloud", () => routeSpeech(x, practiceRow(x, result))));
     const actions = el("div", undefined, "row");
     const seen = new Set(), maps = [];
     for (const id of x.evidence || []) {

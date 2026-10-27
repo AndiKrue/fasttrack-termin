@@ -233,6 +233,7 @@ function renderRoute(route, i, evidence) {
   card.append(el("p", "why", route.why));
 
   const p = practiceOf(route, evidence);
+  card.append(readAloudButton(`Read route ${i + 1} aloud`, () => routeSpeech(route, p)));
   if (p) {
     const box = el("div", "practice");
     if (p.name) box.append(el("strong", null, p.name));
@@ -297,6 +298,11 @@ function renderResult(r) {
   const evidence = r.evidence || {};
   if (!(r.routes || []).length) {
     out.append(el("div", "card error", "No route survived verification. Open the trace to see which steps had no evidence."));
+  } else {
+    const head = el("div", "resulthead");
+    head.append(el("h2", null, "Fastest routes"), readAloudButton("Read all routes aloud",
+      () => r.routes.map((route) => routeSpeech(route, practiceOf(route, evidence))).join(" ")));
+    out.append(head);
   }
   (r.routes || []).forEach((route, i) => out.append(renderRoute(route, i, evidence)));
 
@@ -431,3 +437,70 @@ async function ask() {
 
 $("go").onclick = ask;
 $("q").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) ask(); });
+
+// ---- speech: Web Speech API only, started by the user, never auto-played ----
+const SPEECH_LANG = /^de\b/i.test(navigator.language || "") ? "de-DE" : "en-US";
+let speakingBtn = null;
+
+function routeSpeech(route, p) {
+  const parts = [route.route + "."];
+  if (route.expected_days != null) parts.push(`About ${route.expected_days} days.`);
+  if (route.why) parts.push(route.why);
+  if (p && p.name) parts.push(`Practice: ${p.name}.`);
+  if (p && p.phone) parts.push(`Phone: ${p.phone}.`);
+  return parts.join(" ");
+}
+
+function stopReading() {
+  if (!speakingBtn) return;
+  speakingBtn.setAttribute("aria-pressed", "false");
+  speakingBtn.textContent = "Read aloud";
+  speakingBtn = null;
+}
+
+function readAloudButton(label, text) {
+  const b = el("button", "ghost speak", "Read aloud");
+  b.type = "button";
+  b.setAttribute("aria-label", label);
+  b.setAttribute("aria-pressed", "false");
+  if (!("speechSynthesis" in window)) { b.hidden = true; return b; }
+  b.onclick = () => {
+    const again = speakingBtn === b;
+    speechSynthesis.cancel();
+    stopReading();
+    if (again) return; // second press stops
+    const u = new SpeechSynthesisUtterance(text());
+    u.lang = SPEECH_LANG;
+    u.onend = u.onerror = () => { if (speakingBtn === b) stopReading(); };
+    speakingBtn = b;
+    b.setAttribute("aria-pressed", "true");
+    b.textContent = "Stop reading";
+    speechSynthesis.speak(u);
+  };
+  return b;
+}
+
+(function micButton() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return; // unsupported: no button
+  const mic = el("button", "ghost mic", "Speak");
+  mic.type = "button";
+  mic.setAttribute("aria-label", "Speak your question");
+  mic.setAttribute("aria-pressed", "false");
+  let rec = null;
+  const done = () => { rec = null; mic.setAttribute("aria-pressed", "false"); mic.classList.remove("listening"); mic.textContent = "Speak"; };
+  mic.onclick = () => {
+    if (rec) { rec.stop(); return; }
+    rec = new SR();
+    rec.lang = SPEECH_LANG;
+    rec.interimResults = true;
+    rec.onresult = (e) => { $("q").value = [...e.results].map((x) => x[0].transcript).join(""); }; // interim, then final; never submits
+    rec.onend = done;
+    rec.onerror = done;
+    rec.start();
+    mic.setAttribute("aria-pressed", "true");
+    mic.classList.add("listening");
+    mic.textContent = "Listening… tap to stop";
+  };
+  $("go").after(mic);
+})();
