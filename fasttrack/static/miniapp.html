@@ -157,6 +157,14 @@ function render(result) {
     out.append(card);
   });
   (result.caveats || []).forEach((c) => out.append(el("p", "Note: " + c, "muted")));
+  if ((result.dropped || []).length) {
+    const box = el("div", null, "card");
+    box.append(el("strong", "Removed by the verifier"));
+    const ul = el("ul");
+    result.dropped.forEach((d) => ul.append(el("li", (d.route || "(unnamed route)") + " — " + (d.note || d.reason || ""))));
+    box.append(ul);
+    out.append(box);
+  }
   out.append(el("p", "Run " + result.run_id + " · " + result.trace.source + " · web " + (result.trace.web || "off") + " · " + result.trace.memory + " · " + (result.model_calls || []).length + " Nemotron calls", "muted"));
   fillDistances(geoTargets);
 }

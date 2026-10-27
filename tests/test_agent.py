@@ -36,6 +36,20 @@ class AgentTests(unittest.TestCase):
             again = LocalStore(Path(d) / "m.jsonl").recall("knee Köpenick")
             self.assertEqual(again[0]["route"], "Open consultation")
 
+    def test_dropped_route_is_explained(self):
+        class Strict(FakeLLM):
+            def json(self, role, system, user, max_tokens=2048):
+                if role == "verifier":
+                    return {"keep": [0], "notes": ["Invented: no row supports it"]}
+                return super().json(role, system, user, max_tokens)
+
+        with tempfile.TemporaryDirectory() as d:
+            out = investigate("knee, Köpenick", Strict(), LocalSource(), LocalStore(Path(d) / "m.jsonl"), search=False)
+        self.assertEqual([x["route"] for x in out["dropped"]], ["Invented"])
+        self.assertEqual(out["dropped"][0]["note"], "Invented: no row supports it")
+        self.assertEqual(out["dropped"][0]["reason"], "no cited evidence row exists")
+        self.assertEqual(out["routes"][0]["why_trace"][0]["eid"], "E1")
+
     def test_sql_guard(self):
         for bad in ["DROP TABLE x", "SELECT 1; DELETE FROM x", "ATTACH DATABASE 'x' AS y", "update x set a=1"]:
             with self.assertRaises(ValueError):

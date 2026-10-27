@@ -127,6 +127,37 @@ function practiceOf(route, evidence) {
   return null;
 }
 
+// ---- why: one plain line per cited fact ----
+function sourceName(ev) {
+  if (ev.url) { try { return new URL(ev.url).host; } catch { return "web page"; } }
+  const tables = [...String(ev.sql || "").matchAll(/\b(?:FROM|JOIN)\s+([\w.]+)/gi)].map((m) => m[1]);
+  return tables.length ? "Zetaris " + [...new Set(tables)].join(" + ") : "Zetaris";
+}
+
+function factLine(row) {
+  return Object.entries(row || {})
+    .filter(([k, v]) => v != null && v !== "" && k !== "url")
+    .slice(0, 5)
+    .map(([k, v]) => `${k}: ${v}`)
+    .join(" · ");
+}
+
+function whyBlock(route, evidence) {
+  const det = el("details", "whyof");
+  det.append(el("summary", null, "Why this route"));
+  const ol = el("ol", "facts");
+  for (const id of route.evidence || []) {
+    const ev = evidence[id];
+    if (!ev) continue;
+    const li = el("li");
+    li.append(el("span", "src", `${id} · ${sourceName(ev)}`), el("span", "fact", factLine(ev.row)));
+    li.append(ev.url ? link(ev.url, "q", ev.url) : el("code", "q", ev.sql));
+    ol.append(li);
+  }
+  det.append(ol);
+  return det;
+}
+
 function renderRoute(route, i, evidence) {
   const card = el("article", "card route");
   card.append(el("div", "rank", i + 1), el("h3", null, route.route));
@@ -169,7 +200,7 @@ function renderRoute(route, i, evidence) {
     };
     chips.append(chip);
   }
-  card.append(chips, detail);
+  card.append(whyBlock(route, evidence), chips, detail);
   return card;
 }
 
@@ -188,6 +219,38 @@ function renderResult(r) {
     const ul = el("ul", "caveats");
     for (const x of r.caveats) ul.append(el("li", null, x));
     c.append(ul);
+    out.append(c);
+  }
+
+  if ((r.dropped || []).length) {
+    const c = el("section", "card dropped");
+    c.append(el("h2", null, "Removed by the verifier"));
+    const ul = el("ul");
+    for (const d of r.dropped) {
+      const li = el("li");
+      li.append(el("strong", null, d.route || "(unnamed route)"), el("span", null, " — " + (d.note || d.reason || "")));
+      ul.append(li);
+    }
+    c.append(ul);
+    if (!r.dropped.some((d) => d.note) && (r.verifier_notes || []).length) {
+      c.append(el("p", "muted", "Verifier notes: " + r.verifier_notes.join(" · ")));
+    }
+    out.append(c);
+  }
+
+  if ((r.model_calls || []).length) {
+    const c = el("details", "card calls");
+    c.append(el("summary", null, `Model calls (${r.model_calls.length})`));
+    const table = el("table");
+    const head = el("tr");
+    for (const h of ["Role", "Model", "Seconds", "Tokens in/out"]) head.append(el("th", null, h));
+    table.append(head);
+    for (const m of r.model_calls) {
+      const tr = el("tr");
+      for (const v of [m.role, String(m.model || "").replace(/^nvidia\//, ""), m.seconds, `${m.tokens_in ?? "?"}/${m.tokens_out ?? "?"}`]) tr.append(el("td", null, v));
+      table.append(tr);
+    }
+    c.append(table);
     out.append(c);
   }
 

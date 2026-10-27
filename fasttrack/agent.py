@@ -105,6 +105,18 @@ def investigate(question: str, llm, source=None, memory=None, search=None, on_st
     )
     keep = {i for i in verdict.get("keep", []) if isinstance(i, int)}
     kept = [r for i, r in enumerate(routes) if i in keep and r["evidence"]]
+    notes = [n for n in verdict.get("notes", []) if isinstance(n, str)]
+    dropped = []
+    for i, r in enumerate(routes):
+        if i in keep and r["evidence"]:
+            continue
+        reason = "no cited evidence row exists" if not r["evidence"] else "verifier found the cited rows do not support it"
+        dropped.append({"route": r.get("route"), "why": r.get("why"), "reason": reason})
+    if len(notes) == len(dropped):  # one note per dropped route: pair them in order
+        for d, n in zip(dropped, notes):
+            d["note"] = n
+    for r in kept:  # the plain path from each claim back to its source
+        r["why_trace"] = [{"eid": e, "sql_or_query": evidence[e]["sql"], "url": evidence[e].get("url")} for e in r["evidence"]]
     _add(trace, notify, {"step": "verify", "kept": len(kept), "dropped": len(routes) - len(kept), "notes": verdict.get("notes", [])})
 
     for r in kept:
@@ -114,6 +126,8 @@ def investigate(question: str, llm, source=None, memory=None, search=None, on_st
         "run_id": run_id,
         "routes": kept,
         "caveats": draft.get("caveats", []),
+        "dropped": dropped,
+        "verifier_notes": notes,
         "evidence": {e: evidence[e] for r in kept for e in r["evidence"]},
         "trace": trace,
         "model_calls": getattr(llm, "calls", []),
