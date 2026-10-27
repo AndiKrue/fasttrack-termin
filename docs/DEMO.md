@@ -2,119 +2,135 @@
 
 ## Edit and recording plan
 
-Final runtime: **3:00**. The requested individual shots total 3:20. Preserve all their durations by placing the 20-second Nemotron console shot as an inset over the last 20 seconds of the 60-second live-question shot.
+Final runtime: **3:00**. The 60-second live-flow slot now covers web, Telegram QR onboarding, chat status and opening the mini app. Preserve the requested 20-second console shot as an inset over that slot's last 20 seconds; all other original shot durations stay unchanged.
 
-Times below are edit positions, not promised inference times. Capture actual runs; if processing takes longer, cut the wait and display “Processing wait shortened”. Never fabricate a result, latency, call count, verifier rejection or memory hit.
+Times are edit positions, not inference-time promises. Capture actual runs. If processing takes longer, cut the wait and display “Processing wait shortened”. Never fabricate route text, latency, call counts, verifier rejections or recall hits. Do not imply that different questions or clients share the same run ID.
 
 Keep this exact editorial disclosure visible throughout:
 
-> SAMPLE practices and waiting times. Not medical advice.
+> FT_* practices and waiting times are SAMPLE data. Web rows link their source. Not medical advice. Emergencies: 112.
 
 ## Before recording
 
-- Use the actual Zetaris platform and registered seed tables. Confirm the first response's trace says source = zetaris-lightning.
-- Install the Meterless bridge dependencies and use H-MEM. Confirm memory = meterless-h-mem. Local fallback runs do not demonstrate sponsor integrations.
-- For this SQL-focused shot list, leave optional Firecrawl search disabled and confirm the UI footer shows web off. If recording with web search enabled instead, distinguish URL-backed web rows from SQL evidence and SAMPLE seed rows in the narration.
-- Keep the NVIDIA models at the documented defaults, or identify the actual overrides on screen.
-- Rehearse until the first question returns a supported route and a related second question produces an actual recall. The recall count is in the second response's trace.steps entry with step = recall. The UI footer shows the backend, not the recall count.
-- Prepare the browser Network panel to inspect the second /ask JSON response. Prepare the Zetaris SQL editor and the application console.
-- Show only application log lines and selected response fields. Keep credentials, request headers, environment dumps and private patient information out of frame.
-- Do not turn a SAMPLE waiting-time observation into a promise of an appointment. No timing or outcome figures are scripted below.
+- Pull the current main branch. Copy .env.example to .env and fill keys locally. Keep .env git-ignored and never commit or display it. Start the configured stack with `docker compose up --build -d`; build output reports stages. For recording, the services must already be ready.
+- Compose services are app (http://127.0.0.1:8765), tunnel (Cloudflare quick tunnel with public HTTPS) and bot (Telegram @FastTrackTerminBot). The application image contains Python 3.12, JRE 17 for JDBC and Node for H-MEM. Zetaris is reached at host.docker.internal:10000; an empty ZETARIS_JDBC_JAR selects local SQLite.
+- Use real Zetaris and H-MEM for sponsor shots. Confirm source = zetaris-lightning and memory = meterless-h-mem in the run information. A local fallback is not a demonstration of either sponsor integration.
+- Generate the onboarding QR in a configured Python environment with `python -m fasttrack.telegram_bot --qr bot-qr.png`. Verify it resolves to https://t.me/FastTrackTerminBot. The command uses the configured bot's actual username, not a hard-coded destination. Do not commit generated QR files as part of this documentation change.
+- Confirm the bot's “Open FastTrack app” button or “FastTrack” menu opens the current tunnel's /miniapp. The bot discovers the tunnel hostname through cloudflared metrics and sets its mini app menu itself; FT_MINIAPP_URL is an explicit override. If the hostname is not ready, rehearse after setup completes rather than depicting a missing button as working.
+- Enable optional Firecrawl only with valid local configuration: FIRECRAWL_API_KEY for the cloud endpoint or FIRECRAWL_URL for the configured self-hosted endpoint. Its query excludes doctolib, jameda, docinsider and sanego, and matching URLs are filtered. Lightning is instructed to extract only stated page facts and the answer prefers URL-backed web rows over SAMPLE rows. Show actual source rows; do not claim that source URLs prove live appointment availability.
+- Rehearse supported first and second questions. A genuine recall count is visible in the web timeline and trace. Use the same persistent H-MEM store; a missing recall must not be edited into a hit.
+- Prepare the Zetaris SQL editor, selected application console lines, and real web/Telegram captures. Keep tokens, API keys, request headers, environment dumps and private patient information out of frame. Do not open an actual call during the demo.
 
 ## Shot list and exact narration
 
 ### 00:00–00:20 | Problem | 20 seconds
 
-**Picture:** Title card, then the application's question box.
+**Picture:** Title card, then the web question box. Show the run command as an editorial caption, not a simulated successful deployment.
 
-**Exact on-screen title:**
+**Exact on-screen text:**
 
-> FastTrack Termin  
+> FastTrack Termin
+>
 > Which route to a specialist appointment, and why?
-
-**Exact supporting text:**
-
-> Berlin · Statutory insurance  
-> Rules + practices + waiting-time observations  
-> SAMPLE practices and waiting times. Not medical advice.
+>
+> Berlin · Statutory insurance
+>
+> Run: docker compose up --build -d
 
 **Narration:**
 
-> “For a statutory-insurance patient in Berlin, finding a specialist means piecing together rules, practice information and waiting-time observations. FastTrack Termin proposes a route and shows the evidence behind its reason. This prototype uses sample practices and waiting times. It is not medical advice.”
+> “A statutory-insurance patient in Berlin needs a specialist, but rules, practice details and waiting observations are scattered. FastTrack Termin explains a supported route through web, Telegram or a mini app. The seed practices and waiting times are sample data. This is not medical advice.”
 
-### 00:20–01:20 | Live question in the UI | 60 seconds
+### 00:20–01:20 | Live flow: web, Telegram and mini app | 60 seconds
 
-**Picture:** Open http://127.0.0.1:8765. Show the existing question, click the existing button and capture the real response. During 01:00–01:20, retain the UI as the main picture and add the console inset described below.
+#### 00:20–00:40 | Web question and streaming timeline
 
-**Exact question, matching the UI default:**
+**Picture:** Open http://127.0.0.1:8765. Submit the existing question with “Find the fastest route”. Show the real timeline updating through /ask/stream (NDJSON). Steps report completed work, not a percentage of inference progress.
+
+**Exact question:**
 
 > I live in Köpenick, have knee pain for three weeks and a referral from my GP without urgency code. How do I get an orthopaedics appointment fastest?
 
-**Existing button text:**
+**Existing timeline labels to capture:**
 
-> Find the fastest route
+- Planning with Nemotron
+- Querying Zetaris (3 sources)
+- Searching the web (Firecrawl)
+- Recalling memory (Meterless H-MEM)
+- Verifying every claim
 
-**Existing processing text:**
+Optional web search may be skipped; do not imply it ran when disabled.
 
-> Planning, querying the sources, verifying ...
+**Narration:**
 
-**Editorial captions, in order:**
+> “We ask about orthopaedics in Köpenick with a referral but no urgency code. The live timeline reports planning, source retrieval, optional web evidence, memory recall and verification. Each update comes from the running investigation.”
 
-> Plan the facts needed  
-> Query the sources  
-> Recall earlier verified findings  
-> Draft, then verify
+#### 00:40–01:00 | Scan QR, ask in Telegram, watch status
 
-**Narration, 00:20–01:00, with room for the interaction:**
-
-> “Here is the patient's question: they live in Köpenick and want an orthopaedics appointment, with a referral but no urgency code. The planner chooses which facts to retrieve. The SQL role queries the sources. The answer receives those rows and earlier verified findings, then a separate verifier checks the draft. Only retained routes with evidence references reach this screen. Processing time is shown as recorded, or explicitly shortened in the edit.”
-
-### 01:00–01:20 | Nemotron console inset | 20 seconds, overlapping the live shot
-
-**Picture:** Enlarge real application log lines containing the literal prefix [nemotron]. Show the actual planner, sql, answer and verifier role/model strings. Retain the UI behind the inset.
+**Picture:** Scan the real onboarding QR. Open @FastTrackTerminBot and press Telegram's Start control if needed. Send the same question. Show one message being edited as steps finish, followed by the actual route response. Shorten processing waits transparently.
 
 **Exact editorial caption:**
 
-> Nemotron by role  
-> Lightning 30B: planner · SQL · verifier  
-> Ultra 550B: answer
+> Scan → ask → watch one live status message
 
-**Actual code-default model strings to capture:**
+**Existing bot text and labels to capture:**
 
-- nvidia/nemotron-3.5-lightning-30b-a3b
-- nvidia/nemotron-3-ultra-550b-a55b
+- Working on your question
+- Planning (Nemotron)
+- Querying Zetaris
+- Web search (Firecrawl)
+- Memory (H-MEM)
+- Verifying
 
-The remaining status codes and elapsed times must come from the run. Do not paste invented log lines. These lines print after each HTTP request returns; they are not progress heartbeats.
+Keep generated step counts and returned route text as recorded.
 
 **Narration:**
 
-> “These are the actual Nemotron calls. Lightning handles planning, SQL and verification; Ultra writes the evidence-based answer. The console reports each role, model, HTTP status and elapsed time. This is role-specific orchestration, with a separate checking step before routes are returned.”
+> “Scan the QR to open the Telegram bot and ask in chat. One status message updates as work completes. The answer includes reasons, plus phone details, map and source links when its cited evidence provides them.”
 
-### 01:20–02:00 | Routes, “Why” and evidence rows | 40 seconds
+#### 01:00–01:20 | Open mini app, with console inset
 
-**Picture:** Scroll through a real retained route. Zoom on its “Why:” paragraph, then the evidence block beneath it. Keep the SAMPLE disclosure visible. Do not script the generated route text.
+**Picture:** Tap the bot's “Open FastTrack app” button or “FastTrack” menu. Show /miniapp inside Telegram with its theme colours, question field and Telegram main button. The console inset occupies this same interval; it is not an additional 20-second shot.
+
+**Existing mini app main-button text:**
+
+> Find fastest route
 
 **Exact editorial captions:**
 
-> Why this route?  
-> Evidence ID → executed SQL → returned row  
-> Only routes retained by the verifier are shown
+> Same agent flow inside Telegram
+>
+> Nemotron by role: Lightning 30B plans, retrieves and verifies; Ultra 550B answers
 
-**Existing UI label to highlight:**
-
-> Why:
-
-Show the actual evidence ID, SQL and row rendered by the UI. Highlight sample = SAMPLE in a returned practice or waiting-time row if present. If the model's SELECT omitted that column, keep the editorial SAMPLE disclosure and show the marker in the next SQL-editor shot.
+**Console capture:** Show real application lines beginning with [nemotron], with the actual planner, sql, answer and verifier model names. Defaults are nvidia/nemotron-3.5-lightning-30b-a3b and nvidia/nemotron-3-ultra-550b-a55b. Never invent HTTP statuses or elapsed times. These lines print after requests return; they are not heartbeats. Optional web-query and extraction calls reuse the sql and verifier roles.
 
 **Narration:**
 
-> “The route comes with a reason. Below it is the evidence ID, the query that produced the evidence, and the returned row. We can inspect the basis of the recommendation rather than accepting an explanation on trust. Practice and waiting-time observations here are sample data, not live availability. The verifier checks draft routes against their cited rows; the application also removes invalid evidence IDs. This is a model-based check, not a clinical or legal guarantee.”
+> “Open the mini app inside Telegram, using its theme and main button. The inset shows actual Nemotron calls: Lightning plans, retrieves and verifies; Ultra answers. The recorded role, model, status and elapsed time make that allocation inspectable.”
 
-### 02:00–02:20 | Query in the Zetaris UI | 20 seconds
+### 01:20–02:00 | Routes, reasons, evidence and actions | 40 seconds
 
-**Picture:** Run this read-only query in the Zetaris SQL editor and show its actual output. This is an explicit inspection query; do not label it as agent-generated SQL unless the captured agent actually generated it.
+**Picture:** Return to the completed web run. Show a route card, its reason and expected days if returned. Click an actual evidence chip to reveal the SQL and row. For a web row, open its chip and point to “Open source”. Do not label a web-search description as executed SQL.
 
-**Exact query text:**
+When an actual cited row has phone/address, highlight “Call ” followed by the returned phone number, “Route (OSM)” and “Route (Google)”. Show the optional “Use my location” control without requiring location permission for the recording. If used, describe the Nominatim-based output as a distance estimate, not journey time. If fields are absent, omit the corresponding action close-up.
+
+**Exact editorial captions:**
+
+> Why this route?
+>
+> Evidence chip → query or web search → actual row
+>
+> Call and route actions come from cited phone/address fields
+
+The current web card renders the reason without a literal “Why:” prefix. Telegram and mini app use “Why:”. Use generated content exactly as returned; do not add a fabricated recommendation or expected-day value.
+
+**Narration:**
+
+> “Each card shows the route and its reason. An evidence chip opens the supporting query and row, or a web result with its source link. When cited data provides a phone or address, the card offers call and map actions. Location sharing can add a distance estimate. Sample waiting observations are not live availability. The verifier checks the draft against cited rows; that is a model-based check, not a medical or legal guarantee.”
+
+### 02:00–02:20 | Zetaris query | 20 seconds
+
+**Picture:** Execute this inspection query in the Zetaris SQL editor. Show actual output and its SAMPLE markers. This is an inspection query, not a claim about the exact SQL generated by the agent.
 
 ```sql
 SELECT p.practice_id, p.name, p.sample AS practice_data,
@@ -125,54 +141,62 @@ WHERE p.specialty = 'orthopaedics'
 ORDER BY w.days_to_appointment
 ```
 
-**Exact editorial captions:**
+**Exact editorial caption:**
 
-> Zetaris Lightning: inspect the federated data  
-> FT_RULES.rules · FT_PRACTICES.practices · FT_WAITS.waits  
-> Inspection query: practices joined to waiting-time observations
+> Zetaris Lightning: FT_RULES.rules · FT_PRACTICES.practices · FT_WAITS.waits
+>
+> Inspection query: practices joined to waiting observations
 
 **Narration:**
 
-> “Here is the data in Zetaris itself. This inspection query joins the practice and waiting-time sources and exposes their sample markers. The agent uses Lightning JDBC over these sources and the separate rules table. The trace identifies the actual backend used.”
+> “In Zetaris, this inspection query joins practices to waiting observations and shows the sample markers. The agent uses Lightning JDBC over these sources and the separate rules table. Backend labels distinguish the real integration from the local SQLite stand-in.”
 
 ### 02:20–02:40 | H-MEM recall on a second question | 20 seconds
 
-**Picture:** Submit the exact related question below in the UI. Cut any wait transparently. Show the second /ask response's trace: memory = meterless-h-mem and the recall entry's actual records value. Use the browser Network response view; the current page does not render a memory-detail panel.
+**Picture:** In the mini app or web UI, submit the related question below. Show the actual “Memory (H-MEM)” or “Recalling memory (Meterless H-MEM)” timeline update and its real count. In the web UI, “Trace: every step, query and verifier note” also exposes the recall entry. If inspecting the stream response, the final result is under result; recall is in result.trace.steps.
 
-**Exact second question:**
+**Exact question:**
 
 > For the same orthopaedics question in Köpenick, explain again why the recommended route fits my referral without an urgency code.
 
 **Exact editorial captions:**
 
-> Second question: recall earlier verified findings  
-> H-MEM: route + reason + run provenance + ledger  
-> Current answer still needs fresh evidence
+> Recall earlier verified findings
+>
+> H-MEM: route + reason + run provenance + ledger
+>
+> The new answer still needs current evidence
 
 **Narration:**
 
-> “The first answer's retained routes entered H-MEM with their reasons and run provenance, backed by its ledger. On this related question, the trace shows the actual recall count. Earlier findings provide context, while the new answer still needs current evidence and verification.”
+> “The first answer's retained routes entered H-MEM with their reasons and run provenance, backed by its ledger. This related question shows the actual recall count in the timeline. Memory provides context; the new answer still needs current evidence and verification.”
 
-**Recording condition:** Show a nonzero recall count only when the actual response reports it. If no findings are recalled, rehearse a supported related question; do not claim a hit. H-MEM currently stores route text and run provenance, not the full SQL evidence payload. The ledger is persisted under runs/hmem by default; the UI does not display it.
+**Recording condition:** Claim a hit only if the actual recall count is nonzero. The current bridge stores route text and run provenance, not the full SQL evidence payload. H-MEM's persisted ledger is not rendered in a dedicated UI viewer.
 
 ### 02:40–03:00 | Close | 20 seconds
 
-**Picture:** Return to a retained route and its evidence, then end on the repository URL.
+**Picture:** Finish on the mini app and a web evidence chip, then the repository URL.
 
 **Exact closing card:**
 
-> FastTrack Termin  
-> Track 02: The Agent That Can Explain Why  
-> Zetaris · Meterless H-MEM · NVIDIA Nemotron  
-> github.com/AndiKrue/fasttrack-termin  
-> SAMPLE practices and waiting times. Not medical advice.
+> FastTrack Termin
+>
+> Track 02: The Agent That Can Explain Why
+>
+> Web · Telegram @FastTrackTerminBot · Mini app
+>
+> Zetaris · Meterless H-MEM · NVIDIA Nemotron
+>
+> github.com/AndiKrue/fasttrack-termin
+
+Retain the SAMPLE/not-medical-advice/emergency disclosure through the final frame.
 
 **Narration:**
 
-> “FastTrack Termin connects retrieval, explanation, verification and memory. Zetaris supplies the queryable facts, Nemotron plans and checks the reasoning workflow, and Meterless H-MEM carries accepted findings into the next question. The result is an appointment-navigation prototype whose reasons can be inspected, with its sample-data limits kept visible.”
+> “Web, Telegram and mini app use the same investigation flow. Zetaris supplies queryable facts, Firecrawl adds source-linked practice evidence, Nemotron proposes and checks routes, and Meterless H-MEM carries retained findings forward. The reasons remain inspectable, with sample-data limits visible. In an emergency, call 112.”
 
-## Evidence boundaries for the recording
+## Evidence boundaries
 
-The existing UI shows route reasons, SQL evidence, optional web source links, caveats and a run/backend/call-count footer. It does not show a verifier review panel, a memory explorer or a ledger viewer. Use actual response JSON or the persisted H-MEM files for those details. Do not imply that a verifier dropped a route unless the captured trace records it. Model calls can accumulate in the shared client; do not narrate the footer as a per-question call count without checking the trace and logs.
+The web UI now renders streamed steps, recall counts and a trace disclosure; the previous static-only recording instructions no longer apply. Show verifier drops only when the captured trace reports them. Model calls may accumulate in a shared client, so do not describe the footer count as per-question without checking logs. Keep secrets out of every capture; do not display .env, bot API URLs containing tokens or credential-bearing request headers. No live deployment, response or recall success is asserted by this shot list.
 
-Implementation references: [UI](../fasttrack/app.py), [agent loop](../fasttrack/agent.py), [model logging](../fasttrack/llm.py), [sources](../fasttrack/sources.py), [memory adapter](../fasttrack/memory.py), [H-MEM bridge](../meterless/bridge.ts).
+Implementation references: [streaming endpoint](../fasttrack/app.py), [web UI](../fasttrack/static/app.js), [Telegram bot](../fasttrack/telegram_bot.py), [mini app](../fasttrack/static/miniapp.html), [agent loop](../fasttrack/agent.py), [model calls](../fasttrack/llm.py), [web evidence](../fasttrack/web.py), [H-MEM bridge](../meterless/bridge.ts), [Compose](../compose.yaml), [image](../Dockerfile).
