@@ -2,11 +2,11 @@
 
 **The fastest route to a specialist appointment, with the evidence behind every reason.**
 
-FastTrack Termin helps statutory-insurance patients in Berlin compare routes to a specialist appointment. It brings appointment-system rules, a practice directory and waiting-time observations into one agent workflow. Each retained recommendation includes a reason and evidence IDs that resolve to the exact SQL query and result rows.
+FastTrack Termin helps statutory-insurance patients in Berlin compare routes to a specialist appointment. It brings appointment-system rules, a practice directory, waiting-time observations and optional live web evidence into one agent workflow. Each retained recommendation includes a reason and evidence IDs that resolve to SQL result rows or URL-backed web rows.
 
 Built for the **Open Agent Hackathon 2026**, Track 02 **"The Agent That Can Explain Why"**, and the **NVIDIA Nemotron prize**.
 
-> **Demo data:** practices and waiting times are **SAMPLE data**, not live availability or promised waiting times. This is not medical advice. **In an emergency, call 112.**
+> **Demo data:** the seed practice directory and waiting times are **SAMPLE data**, not live availability or promised waiting times. Optional web rows carry their source URLs. This is not medical advice. **In an emergency, call 112.**
 
 ## How it works
 
@@ -19,26 +19,31 @@ flowchart TD
     Rules["FT_RULES.rules"] --> SQL
     Practices["FT_PRACTICES.practices · SAMPLE"] --> SQL
     Waits["FT_WAITS.waits · SAMPLE"] --> SQL
-    SQL --> Rows["Zetaris JDBC results: evidence IDs, SQL and rows"]
+    SQL --> SQLRows["Zetaris JDBC results: SQL and rows"]
+    SQLRows --> Web["Optional Firecrawl: one search per patient question"]
+    Web --> Extract["Lightning extracts stated page facts and source URLs"]
+    Extract --> Rows["Combined SQL and URL-backed web evidence"]
+    SQLRows --> Rows
     Rows --> Recall["Recall earlier findings from H-MEM"]
     Memory["Meterless H-MEM: provenance and ledger"] --> Recall
     Recall --> Answer["Answer: rank routes and cite evidence"]
     Answer --> Verifier["Verifier: check routes against cited rows"]
     Rows --> Verifier
     Verifier --> Kept["Keep supported routes with valid citations"]
-    Kept --> Result["Display routes, reasons and evidence"]
+    Kept --> Result["Display routes, reasons, evidence and source links"]
     Kept --> Remember["Remember retained findings"]
     Remember --> Memory
 ```
 
 1. **Plan:** Nemotron identifies the questions needed to answer the patient.
 2. **Query:** a SQL-generation call produces a SELECT for each question. Results receive IDs such as `E1`, paired with their SQL and row. Query failures are recorded in the trace.
-3. **Recall:** memory supplies earlier findings as context for the answer.
-4. **Answer:** Nemotron ranks proposed routes, explains why and cites evidence IDs.
-5. **Verify:** another model call checks each route against its cited rows. Unknown evidence IDs are stripped; routes are retained only when selected by the verifier and backed by at least one valid citation.
-6. **Remember:** retained findings are sent to memory for later questions.
+3. **Search the web (optional):** Lightning writes one search query for the original patient question. Firecrawl returns page content; Lightning extracts practice facts into URL-backed evidence rows. Web errors are recorded in the trace without stopping the SQL-backed workflow.
+4. **Recall:** memory supplies earlier findings as context for the answer.
+5. **Answer:** Nemotron ranks proposed routes, explains why and cites evidence IDs. Its prompt prefers web rows with URLs over SAMPLE rows and requires sample facts to be identified.
+6. **Verify:** another model call checks each route against its cited rows. Unknown evidence IDs are stripped; routes are retained only when selected by the verifier and backed by at least one valid citation.
+7. **Remember:** retained findings are sent to memory for later questions.
 
-The response includes the source and memory backend names, a workflow trace and model-call metadata. The UI displays each retained route with its reason, cited SQL and evidence rows. Verification is model-based; it is not a guarantee of factual correctness. The route verifier does not separately verify the answer's caveats.
+The response includes the source and memory backend names, a workflow trace and model-call metadata. The UI displays each retained route with its reason and evidence rows, including SQL for database evidence and clickable source URLs for web evidence. It also exposes the workflow trace and web-backend status. Verification is model-based; it is not a guarantee of factual correctness. The route verifier does not separately verify the answer's caveats.
 
 ## Sponsor technology
 
@@ -60,7 +65,7 @@ The H-MEM reference implementation is **vendored unmodified** from [Meterless/Me
 
 The project's [TypeScript bridge](meterless/bridge.ts) connects Python to H-MEM using JSON over stdin/stdout. It stores a retained route and reason with a run tag and a `fasttrack:<run_id>` source. H-MEM persists state and its ledger under `runs/hmem` by default; `FT_HMEM_DIR` overrides that directory. Recall returns matching memories with their source and relevance.
 
-The current H-MEM bridge stores route text and run-level provenance, rather than the full evidence-row payload. The agent response carries the cited SQL and rows. The JSONL fallback stores the full record, including that evidence.
+The current H-MEM bridge stores route text and run-level provenance, rather than the full evidence-row payload. The agent response carries the cited SQL or web search, rows and web source URLs. The JSONL fallback stores the full record, including that evidence.
 
 ### NVIDIA Nemotron: a model for each role
 
@@ -70,12 +75,22 @@ The current H-MEM bridge stores route text and run-level provenance, rather than
 | --- | --- |
 | Planner | Lightning 30B: `nvidia/nemotron-3.5-lightning-30b-a3b` |
 | SQL generation | Lightning 30B: `nvidia/nemotron-3.5-lightning-30b-a3b` |
+| Web search query (uses the `sql` role) | Lightning 30B: `nvidia/nemotron-3.5-lightning-30b-a3b` |
+| Web fact extraction (uses the `verifier` role) | Lightning 30B: `nvidia/nemotron-3.5-lightning-30b-a3b` |
 | Answer | Ultra 550B: `nvidia/nemotron-3-ultra-550b-a55b` |
 | Verifier | Lightning 30B: `nvidia/nemotron-3.5-lightning-30b-a3b` |
 
-The planner chooses what to investigate, SQL generation translates those questions, Ultra produces the ranked explanation, and the verifier checks its routes against cited evidence. Model-call metadata records the role, model, elapsed seconds and token usage when returned by the API.
+The planner chooses what to investigate, SQL generation translates those questions, Lightning also writes the web search query and extracts page facts, Ultra produces the ranked explanation, and the verifier checks its routes against cited evidence. Model-call metadata records the role, model, elapsed seconds and token usage when returned by the API.
 
 Override roles with `FT_MODEL_PLANNER`, `FT_MODEL_SQL`, `FT_MODEL_ANSWER` and `FT_MODEL_VERIFIER`. `NVIDIA_BASE_URL` overrides the API base URL. Your NVIDIA API account must have access to the configured models.
+
+### Firecrawl: optional live web evidence
+
+[fasttrack/web.py](fasttrack/web.py) makes **one Firecrawl search per patient question** when enabled, after the SQL queries and before memory recall. The cloud endpoint is `https://api.firecrawl.dev/v1/search`, authenticated with `FIRECRAWL_API_KEY`. For a self-hosted service, set `FIRECRAWL_URL` to its full search endpoint URL. The current implementation requires `FIRECRAWL_API_KEY` to enable either endpoint.
+
+Nemotron Lightning is instructed to extract **only facts stated in the returned page text**, leaving unstated fields null. Extracted rows are accepted only when their URL matches a returned page URL. Each accepted web evidence row retains that source URL, and the UI links it. This URL check does not independently establish that each extracted fact is correct.
+
+Booking portals excluded from automated access are **doctolib, jameda, docinsider and sanego**. The search appends site exclusions and filters returned URLs for those portal names. The answer is prompted to prefer URL-backed web rows over SAMPLE rows; web evidence does not establish live appointment availability.
 
 ## Setup
 
@@ -88,6 +103,8 @@ Clone this repository and open a terminal at its root. Set the following environ
 | Variable | Value or purpose |
 | --- | --- |
 | `NVIDIA_API_KEY` | NVIDIA API credential, required by the app |
+| `FIRECRAWL_API_KEY` | Firecrawl credential; enables optional live web evidence |
+| `FIRECRAWL_URL` | Optional full search endpoint URL for self-hosted Firecrawl; defaults to `https://api.firecrawl.dev/v1/search` |
 | `ZETARIS_USER` | Your Zetaris platform user |
 | `ZETARIS_PASSWORD` | Your Zetaris platform password |
 | `ZETARIS_JDBC_JAR` | Local path to the Lightning JDBC driver JAR; also selects the Zetaris backend |
@@ -135,11 +152,13 @@ python -m fasttrack.app
 
 Open **[http://127.0.0.1:8765](http://127.0.0.1:8765)**. The server binds to loopback. `FT_PORT` overrides the port. Stop the foreground server with Ctrl+C.
 
-The page contains an example question about an orthopaedics appointment in Köpenick with a GP referral but no urgency code. Edit it, select **Find the fastest route**, then inspect the proposed routes, reasons and evidence rows. The footer identifies the active source and memory backends.
+The page contains an example question about an orthopaedics appointment in Köpenick with a GP referral but no urgency code. Edit it, select **Find the fastest route**, then inspect the proposed routes, reasons and evidence rows. When web evidence is enabled, follow its source links to inspect the original pages. The footer identifies the active source, web and memory backends.
 
 ### Fallbacks and tests
 
 Without `ZETARIS_JDBC_JAR`, the agent uses an in-memory SQLite stand-in with the same three logical schemas and seed files. H-MEM is selected when its bridge and local `tsx` executable are available. Set `FT_MEMORY=local`, or omit the bridge installation, to use `runs/memory.jsonl` instead. A runtime H-MEM bridge error is reported; it does not silently switch to JSONL.
+
+Without `FIRECRAWL_API_KEY`, web search is disabled. Web search failures appear in the trace; the remaining evidence workflow continues.
 
 These fallbacks support development, but do not demonstrate the live Zetaris/H-MEM integration. The app still requires NVIDIA API access.
 
@@ -149,11 +168,11 @@ Run the offline unit tests from the repository root:
 python -m unittest tests.test_agent
 ```
 
-The tests use a fake model, SQLite and temporary JSONL memory. They cover cross-schema querying and citation filtering, the SQL guard, memory recall and JSON parsing. They do not test live NVIDIA, Zetaris or H-MEM services.
+The tests use a fake model, SQLite and temporary JSONL memory. They cover cross-schema querying and citation filtering, the SQL guard, memory recall and JSON parsing. They do not test live NVIDIA, Zetaris, H-MEM or Firecrawl services.
 
 ## Data and limitations
 
-- **Practices and waiting times are SAMPLE data.** They are not verified practice listings, live appointment slots or guaranteed waiting periods.
+- **Seed practices and waiting times are SAMPLE data.** They are not verified practice listings, live appointment slots or guaranteed waiting periods. Optional web rows are separate, URL-backed evidence extracted from returned pages.
 - Rules cite the legal basis listed in [data/seed/rules.csv](data/seed/rules.csv). The application queries those seed rules; it does not retrieve or validate current legislation.
 - Recommendations depend on the supplied data and model output. The app recommends routes; it does not book appointments.
 - **Not medical advice. In emergencies, call 112.**
@@ -162,4 +181,4 @@ The tests use a fake model, SQLite and temporary JSONL memory. They cover cross-
 
 - FastTrack Termin application code and integration bridge: **GNU AGPL-3.0-or-later**, as marked in the source headers. See [LICENSE](LICENSE).
 - Vendored Meterless H-MEM: **Apache License 2.0**. See its [LICENSE](meterless/hmem/LICENSE), [NOTICE](meterless/hmem/NOTICE) and [upstream revision](meterless/hmem/UPSTREAM_COMMIT).
-- The separately supplied Zetaris platform, JDBC driver and NVIDIA API/models remain subject to their respective providers' terms.
+- The separately supplied Zetaris platform, JDBC driver, NVIDIA API/models and Firecrawl service remain subject to their respective providers' terms.
