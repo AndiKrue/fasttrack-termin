@@ -188,13 +188,16 @@ class Bot:
         while True:
             try:
                 updates = self.tg.call("getUpdates", timeout=30, offset=offset, allowed_updates=["message"]) or []
-            except RuntimeError as exc:
+            except Exception as exc:  # network blips and API errors never stop the bot
                 print(f"[telegram] poll: {self.tg.redact(exc)}", flush=True)
                 time.sleep(5)
                 continue
             for u in updates:
                 offset = u["update_id"] + 1
-                self.handle(u)
+                try:
+                    self.handle(u)
+                except Exception as exc:  # one bad update (e.g. invalid mini app URL) never stops the bot
+                    print(f"[telegram] update: {self.tg.redact(exc)}", flush=True)
 
 
 def write_qr(tg: Telegram, path: str) -> str:
