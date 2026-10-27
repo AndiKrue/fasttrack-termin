@@ -5,7 +5,7 @@ size: 16:9
 paginate: true
 title: FastTrack Termin | The Agent That Can Explain Why
 description: Open Agent Hackathon 2026, Track 02 and NVIDIA Nemotron prize
-footer: 'FastTrack Termin · Hackathon prototype · SAMPLE seed data · Not medical advice'
+footer: 'FastTrack Termin · Hackathon prototype · SAMPLE seed data · Not medical advice · Emergency: 112'
 style: |
   section { background: #f8fafb; color: #142c3a; font-family: Arial, sans-serif; font-size: 27px; padding: 54px 64px 64px; line-height: 1.35; }
   h1 { font-size: 47px; line-height: 1.12; letter-spacing: -1.1px; margin-bottom: 28px; color: #142c3a; }
@@ -54,7 +54,7 @@ style: |
 Track 02: “The Agent That Can Explain Why”  
 NVIDIA Nemotron prize submission
 
-<div class="small" style="color:#c3d5dc;margin-top:30px">Berlin · Statutory-insurance patients · Prototype<br>Seed practices and waiting times are SAMPLE data. Not medical advice.</div>
+<div class="small" style="color:#c3d5dc;margin-top:30px">Berlin · Statutory-insurance patients · Prototype<br>Seed practices and waiting times are SAMPLE data. Not medical advice. Emergency: 112.</div>
 
 <!-- Speaker notes: This deck covers rule 6.2: problem and users, solution, workflow and architecture, stack, sponsor use, uniqueness, product visual placeholders, and future work. No live availability or measured time saving is claimed. -->
 
@@ -76,20 +76,22 @@ NVIDIA Nemotron prize submission
 
 ---
 
-<div class="eyebrow">The solution</div>
+<div class="eyebrow">The solution in use</div>
 
-# Ask once. Compare supported routes.
+# Use it: web, Telegram, mini app
 
-<div class="cols">
-<div><h2>Patient input</h2><p>A question about location, specialty and referral situation.</p><p>The agent retrieves relevant rules, practice information and wait observations.</p></div>
-<div><h2>Patient output</h2><p>Ranked routes with a reason and evidence IDs.</p><p>Each retained route exposes supporting rows with SQL or a web source URL.</p></div>
+<div class="three" style="font-size:23px">
+<div class="rule"><h2>Web</h2><p><code>127.0.0.1:8765</code></p><p>Watch the live step timeline. Compare routes, expected days and reasons.</p><p>Open evidence chips for SQL, rows and web source links.</p></div>
+<div class="rule"><h2>Telegram</h2><p>Scan the bot QR code:<br><a href="https://t.me/FastTrackTerminBot">@FastTrackTerminBot</a></p><p>Ask in chat. Watch one status message update live.</p><p>Get routes with phone, map and source links.</p></div>
+<div class="rule"><h2>Mini app</h2><p>Open the bot’s menu button.</p><p>The same live flow inside Telegram, with theme colours and the main button.</p><p>Call or route when cited data has a phone or address.</p></div>
 </div>
 
-<div class="band">The goal: identify the fastest supported route in the available data.</div>
+<pre style="margin:18px 0 8px;font-size:20px">cp .env.example .env    # fill keys locally; never commit .env
+docker compose up --build -d</pre>
 
-<p class="small">This prototype does not book appointments. SAMPLE waits are not live availability or a promise of access.</p>
+<p class="small">Compose starts app + Cloudflare HTTPS tunnel + bot. This prototype does not book appointments.</p>
 
-<!-- Sources: ../../fasttrack/app.py and ../../fasttrack/agent.py (paths relative to this deck). The app shows routes, expected_days when present, reasons, evidence SQL and row, caveats, and the source/memory backend. -->
+<!-- Sources: ../../compose.yaml, ../../Dockerfile, ../../fasttrack/app.py, ../../fasttrack/static/app.js, ../../fasttrack/static/miniapp.html and ../../fasttrack/telegram_bot.py. Copy .env.example to git-ignored .env, fill keys locally, then run Compose; no credentials belong in this deck or logs. Web /ask/stream emits NDJSON. Evidence chips show SQL and rows; web rows have source links. Call uses tel:, Route offers OpenStreetMap/Google when the cited row has phone/address. Optional Use my location displays distance after Nominatim geocoding. Generate the onboarding QR with python -m fasttrack.telegram_bot --qr bot-qr.png, which resolves the configured bot to t.me/FastTrackTerminBot. The bot reads the Cloudflare quick-tunnel hostname via cloudflared metrics and sets its mini app menu button automatically. /miniapp uses Telegram theme colours and MainButton. The Telegram bot redacts its token from errors. SAMPLE data is labelled; not medical advice; 112 for emergencies. -->
 
 ---
 
@@ -106,7 +108,7 @@ NVIDIA Nemotron prize submission
 <div class="step"><b>4 · Answer ←</b>Rank routes; cite evidence IDs.<br><span>Nemotron Ultra 550B</span></div>
 </div>
 
-<p class="small">Between SQL and Recall: optional Firecrawl search + Lightning extraction. SQL/web rows share evidence IDs.</p>
+<p class="small">Optional Firecrawl search + Lightning extraction precedes Recall. Live steps reach web and Telegram; SQL/web rows share evidence IDs.</p>
 
 <!-- Source: ../../fasttrack/agent.py, investigate(). Execution is sequential: plan, SQL queries, optional web search/extraction, recall, answer, verify, remember. SQL generation also uses Lightning. The snake layout follows that order. -->
 
@@ -174,7 +176,7 @@ NVIDIA Nemotron prize submission
 | Verifier | Lightning 30B | Route checks; web fact extraction |
 | Answer | Ultra 550B | Rank routes and explain why |
 
-<p><strong>Python:</strong> agent, HTTP app, <code>httpx</code>, JDBC via <code>jaydebeapi</code>.<br><strong>Node / TypeScript:</strong> <code>tsx</code> bridge to Meterless H-MEM.<br><strong>Browser:</strong> HTML/CSS/JavaScript question and evidence view.</p>
+<p><strong>Image:</strong> Python 3.12 + JRE 17 for Zetaris JDBC + Node for H-MEM.<br><strong>Compose:</strong> app, Cloudflare quick tunnel (public HTTPS), Telegram bot.<br><strong>Zetaris:</strong> <code>host.docker.internal:10000</code>; empty <code>ZETARIS_JDBC_JAR</code> uses local SQLite.</p>
 
 <p class="small">NVIDIA API · Optional Firecrawl: cloud or self-hosted · No measured gains claimed.</p>
 
@@ -187,11 +189,11 @@ NVIDIA Nemotron prize submission
 # Show the route, then inspect the reason
 
 <div class="cols">
-<div><h2>Ask and compare</h2><div class="placeholder"><b>SCREENSHOT PLACEHOLDER A</b><p>Question + ranked route cards</p><span>Insert an actual app capture.<br>Keep the SAMPLE label visible.</span></div></div>
-<div><h2>Inspect the evidence</h2><div class="placeholder"><b>SCREENSHOT PLACEHOLDER B</b><p>Evidence ID + SQL / URL + row</p><span>Insert an actual app capture.<br>Include source / memory backend.</span></div></div>
+<div><h2>Ask and compare</h2><div class="placeholder"><b>SCREENSHOT PLACEHOLDER A</b><p>Question + ranked route cards</p><span>Web: timeline, route, Call/Route.<br>Keep the SAMPLE label visible.</span></div></div>
+<div><h2>Telegram + mini app</h2><div class="placeholder"><b>SCREENSHOT PLACEHOLDER B</b><p>Live bot status + mini app</p><span>Insert actual Telegram captures.<br>Show evidence / source links.</span></div></div>
 </div>
 
-<p class="small">Placeholders only. No screenshots or live-run results are represented on this slide.</p>
+<p class="small">Optional “Use my location” shows distance via Nominatim. Placeholders only; no live results shown.</p>
 
 <!-- Capture guidance: use fasttrack/app.py at localhost. Show the question, a retained route, its why text, evidence IDs with SQL/rows, and backend labels. Hide any personal information. Replace placeholders only with actual product captures; do not fabricate outputs. -->
 
@@ -211,4 +213,4 @@ NVIDIA Nemotron prize submission
 
 <p class="small">Public source: <a href="https://github.com/AndiKrue/fasttrack-termin">github.com/AndiKrue/fasttrack-termin</a></p>
 
-<!-- Future work is proposed, not implemented. Source baseline inspected: 0d8afd12198829c0404480f980310bc564daec77. Re-export with Marp CLI and Chromium: npx @marp-team/marp-cli@4.5.1 docs/deck/deck.md --html --pdf -o docs/deck/deck.pdf. No keys or personal patient data belong in the deck. -->
+<!-- Future work is proposed, not implemented. Source baseline inspected: 7f871b6f50b6a3be78c4ad7efae27ffc7a96ada8. Re-export with Marp CLI and Chromium: npx @marp-team/marp-cli@4.5.1 docs/deck/deck.md --html --pdf -o docs/deck/deck.pdf. No keys or personal patient data belong in the deck. -->
