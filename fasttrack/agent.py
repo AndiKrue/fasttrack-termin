@@ -43,15 +43,16 @@ VERIFY = (
 )
 
 
-def investigate(question: str, llm, source=None, memory=None, search=None) -> dict:
+def investigate(question: str, llm, source=None, memory=None, search=None, on_step=None) -> dict:
     source = source or open_source()
     memory = memory or open_memory()
     run_id = uuid.uuid4().hex[:8]
+    notify = on_step or (lambda step: None)
     trace = {"run_id": run_id, "question": question, "source": source.name, "memory": memory.name, "steps": []}
 
     plan = llm.json("planner", PLANNER, question)
     questions = [q for q in plan.get("questions", []) if isinstance(q, str)][:5]
-    trace["steps"].append({"step": "plan", "questions": questions})
+    _add(trace, notify, {"step": "plan", "questions": questions})
 
     evidence, queries = {}, []
     for q in questions:
@@ -67,7 +68,7 @@ def investigate(question: str, llm, source=None, memory=None, search=None) -> di
             evidence[eid] = {"sql": sql, "row": row}
             ids.append(eid)
         queries.append({"question": q, "sql": sql, "evidence": ids})
-    trace["steps"].append({"step": "query", "queries": queries})
+    _add(trace, notify, {"step": "query", "queries": queries})
 
     search = open_search() if search is None else (search or None)
     if search is not None:
@@ -76,13 +77,13 @@ def investigate(question: str, llm, source=None, memory=None, search=None) -> di
             for row in practices:
                 eid = f"E{len(evidence) + 1}"
                 evidence[eid] = {"sql": f"web search: {web_query}", "url": row.get("url"), "row": row}
-            trace["steps"].append({"step": "web", "query": web_query, "practices": len(practices)})
+            _add(trace, notify, {"step": "web", "query": web_query, "practices": len(practices)})
         except Exception as exc:  # the web is optional evidence, never fatal
-            trace["steps"].append({"step": "web", "error": f"{type(exc).__name__}: {exc}"[:300]})
+            _add(trace, notify, {"step": "web", "error": f"{type(exc).__name__}: {exc}"[:300]})
     trace["web"] = getattr(search, "name", None)
 
     recalled = memory.recall(question)
-    trace["steps"].append({"step": "recall", "records": len(recalled)})
+    _add(trace, notify, {"step": "recall", "records": len(recalled)})
 
     rows_text = json.dumps({k: v["row"] for k, v in evidence.items()}, ensure_ascii=False)
     prior = json.dumps(recalled, ensure_ascii=False)
@@ -104,7 +105,7 @@ def investigate(question: str, llm, source=None, memory=None, search=None) -> di
     )
     keep = {i for i in verdict.get("keep", []) if isinstance(i, int)}
     kept = [r for i, r in enumerate(routes) if i in keep and r["evidence"]]
-    trace["steps"].append({"step": "verify", "kept": len(kept), "dropped": len(routes) - len(kept), "notes": verdict.get("notes", [])})
+    _add(trace, notify, {"step": "verify", "kept": len(kept), "dropped": len(routes) - len(kept), "notes": verdict.get("notes", [])})
 
     for r in kept:
         memory.remember({"run_id": run_id, "at": stamp(), "question": question, "route": r["route"], "why": r["why"], "evidence": {e: evidence[e] for e in r["evidence"]}})
@@ -117,3 +118,12 @@ def investigate(question: str, llm, source=None, memory=None, search=None) -> di
         "trace": trace,
         "model_calls": getattr(llm, "calls", []),
     }
+
+
+def _add(trace: dict, notify, step: dict) -> None:
+    """Record a step and tell a live listener (UI stream, Telegram) about it."""
+    trace["steps"].append(step)
+    try:
+        notify(step)
+    except Exception:  # a broken listener never breaks the investigation
+        pass
