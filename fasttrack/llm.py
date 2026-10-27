@@ -18,7 +18,13 @@ import time
 import httpx
 
 REASONING = "\n\x00REASONING\x00\n"
-BASE = os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
+# Meterless Nightshift is the primary AI provider when METERLESS_BASE_URL is set (its local OpenAI-compatible
+# runtime, default port 8088, NVIDIA connected in its Providers tab). Without it, the NVIDIA API is called directly.
+NIGHTSHIFT = os.environ.get("METERLESS_BASE_URL", "").rstrip("/")
+if NIGHTSHIFT and not NIGHTSHIFT.endswith("/v1"):
+    NIGHTSHIFT += "/v1"
+BASE = NIGHTSHIFT or os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
+PROVIDER = "meterless-nightshift" if NIGHTSHIFT else "nvidia-api"
 MODELS = {
     "planner": os.environ.get("FT_MODEL_PLANNER", "nvidia/nemotron-3.5-lightning-30b-a3b"),
     "sql": os.environ.get("FT_MODEL_SQL", "nvidia/nemotron-3.5-lightning-30b-a3b"),
@@ -33,9 +39,17 @@ NO_THINK = {"planner", "sql", "verifier"}
 
 class Nemotron:
     def __init__(self, key: str | None = None, timeout: float = 120):
-        self.key = key or os.environ.get("NVIDIA_API_KEY", "")
-        if not self.key:
-            raise RuntimeError("NVIDIA_API_KEY is not set")
+        if NIGHTSHIFT:
+            self.key = key or os.environ.get("METERLESS_TOKEN", "")
+            if not self.key or self.key == "rt-local":  # rt-local is the docs' placeholder, not a token
+                raise RuntimeError("METERLESS_TOKEN (the Nightshift runtime token) is not set")
+            self.headers = {"Authorization": f"Bearer {self.key}", "meterless-app": "fasttrack-termin", "meterless-scope": "user"}
+        else:
+            self.key = key or os.environ.get("NVIDIA_API_KEY", "")
+            if not self.key:
+                raise RuntimeError("NVIDIA_API_KEY is not set")
+            self.headers = {"Authorization": f"Bearer {self.key}"}
+        self.provider = PROVIDER
         self.http = httpx.Client(base_url=BASE, timeout=timeout)
         self.calls: list[dict] = []
 
@@ -52,8 +66,8 @@ class Nemotron:
             think = role not in NO_THINK
         if not think and model != FALLBACK:
             body["chat_template_kwargs"] = {"enable_thinking": False}
-        r = self.http.post("/chat/completions", json=body, headers={"Authorization": f"Bearer {self.key}"})
-        print(f"[nemotron] {role} {model} -> {r.status_code} in {time.monotonic() - started:.1f}s", flush=True)
+        r = self.http.post("/chat/completions", json=body, headers=self.headers)
+        print(f"[nemotron] {role} {model} via {self.provider} -> {r.status_code} in {time.monotonic() - started:.1f}s", flush=True)
         r.raise_for_status()
         data = r.json()
         usage = data.get("usage") or {}
@@ -61,6 +75,7 @@ class Nemotron:
             {
                 "role": role,
                 "model": model,
+                "provider": self.provider,
                 "seconds": round(time.monotonic() - started, 2),
                 "tokens_in": usage.get("prompt_tokens"),
                 "tokens_out": usage.get("completion_tokens"),

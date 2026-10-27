@@ -313,7 +313,7 @@ function renderResult(r) {
     table.append(head);
     for (const m of r.model_calls) {
       const tr = el("tr");
-      for (const v of [m.role, String(m.model || "").replace(/^nvidia\//, ""), m.seconds, `${m.tokens_in ?? "?"}/${m.tokens_out ?? "?"}`]) tr.append(el("td", null, v));
+      for (const v of [m.role, String(m.model || "").replace(/^nvidia\//, "") + (m.provider ? ` via ${m.provider}` : ""), m.seconds, `${m.tokens_in ?? "?"}/${m.tokens_out ?? "?"}`]) tr.append(el("td", null, v));
       table.append(tr);
     }
     c.append(table);
@@ -327,7 +327,7 @@ function renderResult(r) {
 
   $("runinfo").textContent =
     `Run ${r.run_id} · source ${t.source || "?"} · web ${t.web || "off"} · memory ${t.memory || "?"} · ` +
-    `${(r.model_calls || []).length} Nemotron calls`;
+    `${(r.model_calls || []).length} Nemotron calls via ${((r.model_calls || [])[0] || {}).provider || "nvidia-api"}`;
 }
 
 // ---- distance (Nominatim, sequential, at most one request per second, cached) ----
