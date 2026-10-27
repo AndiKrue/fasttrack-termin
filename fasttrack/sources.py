@@ -67,13 +67,10 @@ class ZetarisSource:
         import jaydebeapi  # optional dependency, only needed against a real platform
 
         self.conn = jaydebeapi.connect(
-            os.environ.get("ZETARIS_JDBC_CLASS", "com.zetaris.lightning.jdbc.LightningDriver"),
-            os.environ.get("ZETARIS_JDBC_URL", "jdbc:zetaris:lightning@localhost:10000/default"),
-            {
-                "user": os.environ["ZETARIS_USER"],
-                "password": os.environ["ZETARIS_PASSWORD"],
-            },
-            os.environ["ZETARIS_JDBC_JAR"],
+            "com.zetaris.lightning.jdbc.LightningDriver",
+            os.environ.get("ZETARIS_JDBC_URL", "jdbc:zetaris:lightning@localhost:10000"),
+            [os.environ["ZETARIS_USER"], os.environ["ZETARIS_PASSWORD"]],
+            jars=os.environ["ZETARIS_JDBC_JAR"],
         )
 
     def query(self, sql: str) -> list[dict]:
