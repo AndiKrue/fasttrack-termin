@@ -138,6 +138,15 @@ The bot reads the quick-tunnel hostname from cloudflared metrics at `http://tunn
 - **Telegram:** open [@FastTrackTerminBot](https://t.me/FastTrackTerminBot), select Start and ask your question. One status message is edited as agent steps finish; route messages follow with reasons, expected days when provided, and phone numbers, map and source links when present in cited rows.
 - **Mini app:** use the bot's **FastTrack** menu button or **Open FastTrack app** button. `/miniapp` runs the same streamed flow inside Telegram, applies Telegram theme colours and uses its main button to submit a question.
 
+#### Speech
+
+**Speak** fills the question box from your voice and never submits; **Read aloud** reads one route or all of them, and a second press stops. Telegram's Android WebView exposes browser speech recognition without a working service and often has no voice, so with Meterless Nightshift configured (`/config` returns `speech: true`) speech runs on the server:
+
+- **Speak:** the page records with `MediaRecorder` (at most 30 s), converts the recording to 16 kHz mono WAV in the browser and posts it to `POST /stt` (WAV, WebM, OGG or MP4; at most 2 MB and 60 s). The app forwards it to Nightshift's `POST /v1/meterless/transcribe`; its voice-asr engine reads WAV only, which is why the browser converts.
+- **Read aloud:** `POST /tts` with `{"text": ...}` (at most 1500 characters) returns MP3 from Nightshift's `/v1/audio/speech`, played through one `<audio>` element.
+
+Whenever a server call fails (no Nightshift, Nightshift busy or under memory pressure, or a Nightshift build that serves speech only as a narrate job, which answers 404), the page falls back to the browser Web Speech API. Audio, transcribed text and tokens are never logged. `FT_STT_MODEL`, `FT_TTS_MODEL` and `FT_TTS_VOICE` override the Nightshift routes.
+
 For QR onboarding, install the host Python dependencies from `requirements.txt`, then run from the repository root with `TELEGRAM_BOT_TOKEN` in `.env` or the environment:
 
 ```sh

@@ -65,3 +65,71 @@ class NightshiftTest(unittest.TestCase):
                     mod.Nemotron()
         finally:
             importlib.reload(llm)
+
+
+class SpeechTest(unittest.TestCase):
+    def nightshift(self, handler):
+        import importlib
+        import os
+
+        import httpx
+
+        env = {"METERLESS_BASE_URL": "http://host.docker.internal:8088/v1", "METERLESS_RUNTIME_TOKEN": "t0k"}
+        with mock.patch.dict(os.environ, env):
+            mod = importlib.reload(llm)
+            bot = mod.Nemotron()
+        bot.http = httpx.Client(base_url=mod.BASE, transport=httpx.MockTransport(handler))
+        self.addCleanup(importlib.reload, llm)
+        return bot
+
+    def test_transcribe_posts_base64_audio_to_nightshift(self):
+        import base64
+        import json
+
+        import httpx
+
+        seen = {}
+
+        def handler(request):
+            seen["url"], seen["headers"], seen["body"] = str(request.url), request.headers, json.loads(request.content)
+            return httpx.Response(200, json={"text": " knee pain ", "source": "voice-asr-engine"})
+
+        bot = self.nightshift(handler)
+        self.assertEqual(bot.transcribe(b"RIFFwav", "audio/wav", "de"), "knee pain")
+        self.assertEqual(seen["url"], "http://host.docker.internal:8088/v1/meterless/transcribe")
+        self.assertEqual(seen["headers"]["meterless-app"], "fasttrack-termin")
+        self.assertEqual(base64.b64decode(seen["body"]["audio_base64"]), b"RIFFwav")
+        self.assertEqual((seen["body"]["filename"], seen["body"]["model"], seen["body"]["language"]), ("speech.wav", "meterless/transcribe", "de"))
+        self.assertEqual(bot.calls[-1]["role"], "stt")
+
+    def test_speak_returns_audio_and_logs_the_call(self):
+        import json
+
+        import httpx
+
+        seen = {}
+
+        def handler(request):
+            seen["url"], seen["body"] = str(request.url), json.loads(request.content)
+            return httpx.Response(200, content=b"ID3mp3", headers={"content-type": "audio/mpeg"})
+
+        bot = self.nightshift(handler)
+        self.assertEqual(bot.speak("About 3 days."), b"ID3mp3")
+        self.assertEqual(seen["url"], "http://host.docker.internal:8088/v1/audio/speech")
+        self.assertEqual(seen["body"], {"model": "meterless/speech", "input": "About 3 days.", "response_format": "mp3"})
+        self.assertEqual(bot.calls[-1]["role"], "tts")
+
+    def test_unserved_speech_route_is_a_clear_runtime_error(self):
+        import httpx
+
+        bot = self.nightshift(lambda request: httpx.Response(404, json={"error": {"message": "not_found"}}))
+        with self.assertRaises(RuntimeError):
+            bot.speak("x")
+
+    def test_without_nightshift_speech_is_refused(self):
+        bot = llm.Nemotron.__new__(llm.Nemotron)
+        with mock.patch.object(llm, "NIGHTSHIFT", ""):
+            with self.assertRaises(RuntimeError):
+                bot.transcribe(b"x", "audio/wav")
+            with self.assertRaises(RuntimeError):
+                bot.speak("x")

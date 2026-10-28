@@ -10,6 +10,7 @@ verifier - checks every claim against the cited rows and strikes the unsupported
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -38,6 +39,13 @@ if NIGHTSHIFT:
     _DEFAULT = {role: os.environ.get("METERLESS_MODEL", "meterless/auto") for role in _DEFAULT}
 MODELS = {role: os.environ.get(f"FT_MODEL_{role.upper()}", _DEFAULT[role]) for role in ("planner", "sql", "answer", "verifier")}
 FALLBACK = os.environ.get("FT_MODEL_FALLBACK", _DEFAULT["fallback"])
+# Speech through Nightshift. Transcription: POST /v1/meterless/transcribe (base64 JSON; its voice-asr
+# engine decodes WAV only, so the browser sends 16 kHz mono WAV). Speech output: the OpenAI route
+# /v1/audio/speech; builds that serve speech only as a narrate job answer 404, and the UI falls back.
+STT_MODEL = os.environ.get("FT_STT_MODEL") or "meterless/transcribe"
+TTS_MODEL = os.environ.get("FT_TTS_MODEL") or "meterless/speech"
+TTS_VOICE = os.environ.get("FT_TTS_VOICE", "")
+SPEECH_TIMEOUT = 60
 # Lightning roles answer without a reasoning block: a SQL draft drops from ~20 s to ~1 s, and the
 # verifier from 20-80 s with erratic verdicts to a few seconds. Ultra (answer) keeps reasoning.
 NO_THINK = {"planner", "sql", "verifier"}
@@ -93,6 +101,44 @@ class Nemotron:
         self.last_finish = choice.get("finish_reason")
         # Reasoning models may answer after a long reasoning block or, when cut, only inside it.
         return (message.get("content") or "") + REASONING + (message.get("reasoning_content") or "")
+
+    def _log_speech(self, role: str, model: str, started: float, served: str | None = None) -> None:
+        self.calls.append({"role": role, "model": model, "provider": self.provider, "served_model": served,
+                           "seconds": round(time.monotonic() - started, 2), "tokens_in": None, "tokens_out": None})
+
+    def transcribe(self, audio: bytes, mime: str, lang: str | None = None) -> str:
+        """Audio (16 kHz WAV works on every Nightshift build) -> text. Neither audio nor text is logged."""
+        if not NIGHTSHIFT:
+            raise RuntimeError("speech needs Meterless Nightshift")
+        started = time.monotonic()
+        ext = {"audio/wav": "wav", "audio/webm": "webm", "audio/ogg": "ogg", "audio/mp4": "m4a"}.get(mime, "wav")
+        body = {"model": STT_MODEL, "audio_base64": base64.b64encode(audio).decode(), "filename": f"speech.{ext}"}
+        if lang:
+            body["language"] = lang
+        r = self.http.post("/meterless/transcribe", json=body, headers=self.headers, timeout=SPEECH_TIMEOUT)
+        print(f"[nemotron] stt {STT_MODEL} via {self.provider} -> {r.status_code} in {time.monotonic() - started:.1f}s", flush=True)
+        if r.status_code in (404, 503):
+            raise RuntimeError("transcription is not available on Meterless Nightshift right now")
+        r.raise_for_status()
+        data = r.json()
+        self._log_speech("stt", STT_MODEL, started, data.get("lane") or data.get("source"))
+        return str(data.get("text") or "").strip()
+
+    def speak(self, text: str, voice: str | None = None) -> bytes:
+        """Text -> MP3 bytes through /v1/audio/speech."""
+        if not NIGHTSHIFT:
+            raise RuntimeError("speech needs Meterless Nightshift")
+        started = time.monotonic()
+        body = {"model": TTS_MODEL, "input": text, "response_format": "mp3"}
+        if voice or TTS_VOICE:
+            body["voice"] = voice or TTS_VOICE
+        r = self.http.post("/audio/speech", json=body, headers=self.headers, timeout=SPEECH_TIMEOUT)
+        print(f"[nemotron] tts {TTS_MODEL} via {self.provider} -> {r.status_code} in {time.monotonic() - started:.1f}s", flush=True)
+        if r.status_code in (404, 503):
+            raise RuntimeError("speech output is not available on Meterless Nightshift right now")
+        r.raise_for_status()
+        self._log_speech("tts", TTS_MODEL, started, r.headers.get("meterless-served-model"))
+        return r.content
 
     def json(self, role: str, system: str, user: str, max_tokens: int = 8192, think: bool | None = None):
         system = system + "\nReply with one JSON object only, no prose."

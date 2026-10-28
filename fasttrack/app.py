@@ -15,6 +15,10 @@ from .agent import investigate
 from .llm import Nemotron
 
 STATIC = Path(__file__).resolve().parent / "static"
+STT_TYPES = {"audio/wav", "audio/webm", "audio/ogg", "audio/mp4"}
+STT_MAX_BYTES = 2 * 1024 * 1024
+STT_MAX_SECONDS = 60
+TTS_MAX_CHARS = 1500
 
 PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>FastTrack Termin</title>
@@ -68,6 +72,7 @@ class Handler(BaseHTTPRequestHandler):
             # restricted to the Maps Embed API and our referrers. The request log line never has it.
             key = os.environ.get("GOOGLE_MAPS_EMBED_KEY", "")
             body = {"maps": True, "embed_key": key} if key else {"maps": False}
+            body["speech"] = bool(os.environ.get("METERLESS_BASE_URL"))  # server speech through Nightshift
             self._send(200, json.dumps(body).encode(), "application/json")
             return
         # "/" -> static/index.html when present (UI run), else the built-in page; "/miniapp" -> static/miniapp.html
@@ -89,7 +94,68 @@ class Handler(BaseHTTPRequestHandler):
         length = min(int(self.headers.get("Content-Length") or 0), 8192)
         return str(json.loads(self.rfile.read(length) or b"{}").get("question", ""))[:2000]
 
+    def _json(self, status, obj):
+        self._send(status, json.dumps(obj, ensure_ascii=False).encode(), "application/json")
+
+    def _speech(self, work):
+        """Run one speech call; audio, text and tokens never reach the log."""
+        try:
+            return work()
+        except RuntimeError as exc:  # Nightshift not configured, or its speech route is not served
+            self._json(503, {"error": str(exc)[:200]})
+        except Exception as exc:
+            self._json(502, {"error": f"speech failed ({type(exc).__name__})"})
+        return None
+
+    def _stt(self):
+        mime = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        mime = {"audio/x-wav": "audio/wav", "audio/wave": "audio/wav"}.get(mime, mime)
+        if mime not in STT_TYPES:
+            self._json(415, {"error": "send audio/wav, audio/webm, audio/ogg or audio/mp4"})
+            return
+        length = int(self.headers.get("Content-Length") or 0)
+        if length > STT_MAX_BYTES:
+            self._json(413, {"error": "audio is over 2 MB"})
+            return
+        audio = self.rfile.read(length)
+        if mime == "audio/wav" and len(audio) >= 44:
+            rate = int.from_bytes(audio[28:32], "little")  # bytes per second from the WAV header
+            if rate and (len(audio) - 44) / rate > STT_MAX_SECONDS:
+                self._json(413, {"error": "audio is over 60 s"})
+                return
+        if not os.environ.get("METERLESS_BASE_URL"):
+            self._json(503, {"error": "speech needs Meterless Nightshift"})
+            return
+        text = self._speech(lambda: Handler.llm.transcribe(audio, mime, self.headers.get("X-Speech-Lang") or None))
+        if text is not None:
+            self._json(200, {"text": text})
+
+    def _tts(self):
+        length = min(int(self.headers.get("Content-Length") or 0), 16384)
+        try:
+            text = str(json.loads(self.rfile.read(length) or b"{}").get("text") or "").strip()
+        except ValueError:
+            text = ""
+        if not text:
+            self._json(400, {"error": "text is empty"})
+            return
+        if len(text) > TTS_MAX_CHARS:
+            self._json(413, {"error": f"text is over {TTS_MAX_CHARS} characters"})
+            return
+        if not os.environ.get("METERLESS_BASE_URL"):
+            self._json(503, {"error": "speech needs Meterless Nightshift"})
+            return
+        audio = self._speech(lambda: Handler.llm.speak(text))
+        if audio is not None:
+            self._send(200, audio, "audio/mpeg")
+
     def do_POST(self):
+        if self.path == "/stt":
+            self._stt()
+            return
+        if self.path == "/tts":
+            self._tts()
+            return
         if self.path == "/ask/stream":
             # NDJSON: one {"step": ...} line per agent step, then {"result": ...}
             self.send_response(200)

@@ -438,7 +438,9 @@ async function ask() {
 $("go").onclick = ask;
 $("q").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) ask(); });
 
-// ---- speech: Web Speech API only, started by the user, never auto-played ----
+// ---- speech: started by the user, never auto-played ----
+// Server speech through Nightshift (speech.js) when /config says speech: true; the Web Speech API otherwise
+// and whenever a server call fails.
 // Recognition follows the browser language; answers are written in English, so they are read in English.
 const SPEECH_LANG = /^de/i.test(navigator.language || "") ? "de-DE" : "en-US";
 const READ_LANG = "en-US";
@@ -457,6 +459,7 @@ function pickVoice() {
 }
 if ("speechSynthesis" in window) speechSynthesis.getVoices(); // starts loading the voice list early
 function speakText(text, onDone) {
+  if (!("speechSynthesis" in window)) { onDone(); return; }
   speechSynthesis.cancel();
   const voice = pickVoice();
   // Short chunks: Chrome stops long utterances after ~15 s.
@@ -493,31 +496,53 @@ function readAloudButton(label, text) {
   b.type = "button";
   b.setAttribute("aria-label", label);
   b.setAttribute("aria-pressed", "false");
-  if (!("speechSynthesis" in window)) { b.hidden = true; return b; }
+  if (!("speechSynthesis" in window) && !FTSpeech.ttsOn("")) { b.hidden = true; return b; }
   b.onclick = () => {
     const again = speakingBtn === b;
-    speechSynthesis.cancel();
+    if ("speechSynthesis" in window) speechSynthesis.cancel();
+    FTSpeech.stop();
     stopReading();
     if (again) return; // second press stops
     speakingBtn = b;
     b.setAttribute("aria-pressed", "true");
     b.textContent = "Stop reading";
-    speakText(text(), () => { if (speakingBtn === b) stopReading(); });
+    const t = text();
+    const finish = () => { if (speakingBtn === b) stopReading(); };
+    if (FTSpeech.ttsOn(t)) {
+      FTSpeech.unlock();
+      FTSpeech.say(t).then(finish, () => { if (speakingBtn === b) speakText(t, finish); });
+    } else speakText(t, finish);
   };
   return b;
 }
 
 (function micButton() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) return; // unsupported: no button
+  if (!SR && !FTSpeech.canRecord) return; // unsupported: no button
   const mic = el("button", "ghost mic", "Speak");
   mic.type = "button";
   mic.setAttribute("aria-label", "Speak your question");
   mic.setAttribute("aria-pressed", "false");
-  let rec = null;
+  let rec = null, busy = false;
   const done = () => { rec = null; mic.setAttribute("aria-pressed", "false"); mic.classList.remove("listening"); mic.textContent = "Speak"; };
+  const fail = (text) => { done(); mic.textContent = text; setTimeout(() => { if (!rec && !busy) mic.textContent = "Speak"; }, 4000); };
+  const listening = () => { mic.setAttribute("aria-pressed", "true"); mic.classList.add("listening"); mic.textContent = "Listening… tap to stop"; };
+  function serverRecord() {
+    busy = true;
+    listening();
+    FTSpeech.record(SPEECH_LANG, (res) => {
+      busy = false;
+      if (res instanceof Error) { fail(FTSpeech.micError(res)); return; }
+      done();
+      if (res) $("q").value = res; // never submits
+    }).then((r) => { rec = { stop() { rec = null; mic.classList.remove("listening"); mic.textContent = "Transcribing…"; r.stop(); } }; },
+      (e) => { busy = false; fail(FTSpeech.micError(e)); });
+  }
   mic.onclick = () => {
     if (rec) { rec.stop(); return; }
+    if (busy) return;
+    if (FTSpeech.sttOn()) { serverRecord(); return; }
+    if (!SR) { fail("Speech input is not available here"); return; }
     rec = new SR();
     rec.lang = SPEECH_LANG;
     rec.interimResults = true;
