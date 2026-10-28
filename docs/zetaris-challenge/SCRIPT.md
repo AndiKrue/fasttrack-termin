@@ -1,10 +1,10 @@
 # Zetaris Demo Challenge — FastTrack Termin video script
 
-Deadline: upload by **2 Nov 2026, 23:45 UTC** (the message says 3 Nov; the rules page says 2 Nov — plan for the
-earlier one). File name: `FASTTRACK-TERMIN_DDMMYY.mp4` with the upload date. English. Target length 2:30–3:00.
+Window: opens **29 Oct 2026, 23:45 UTC**, closes **5 Nov 2026, 23:45 UTC** (Discord announcement 28 Oct; it
+supersedes the earlier 2/3 Nov dates). Upload: https://www.dropbox.com/home/Zetaris%20Demo%20Submissions File name: `FASTTRACK-TERMIN_DDMMYY.mp4` with the upload date. English. Target length 2:30–3:00.
 
 Judging (100): meaningful use of Zetaris 25 · how it helped you 15 · problem and impact 15 · technical execution 15 ·
-"working with SpaceXSI" 15 (unclear in the rules; ask the organisers) · creativity 10 · video quality 5.
+working with Space XAI's coding agents 15 (Cursor with Grok / Composer: build one real change with it and show it) · creativity 10 · video quality 5.
 Tie-break: higher "meaningful use of Zetaris". So Zetaris must be on screen and doing the work, live.
 
 ## Structure
