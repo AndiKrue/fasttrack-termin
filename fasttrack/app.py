@@ -7,12 +7,17 @@ from __future__ import annotations
 import json
 import mimetypes
 import os
+import threading
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from .env import load_env
 from .agent import investigate
 from .llm import Nemotron
+
+# A blank NDJSON line this often while a step runs: the Cloudflare quick tunnel drops a stream that
+# stays silent for about 100 s, and a slow answer step sends nothing. Both clients skip blank lines.
+KEEPALIVE_S = 15.0
 
 STATIC = Path(__file__).resolve().parent / "static"
 
@@ -97,15 +102,36 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
 
-            def emit(obj):
-                self.wfile.write((json.dumps(obj, ensure_ascii=False, default=str) + "\n").encode())
-                self.wfile.flush()
+            lock, done = threading.Lock(), threading.Event()
 
+            def write(data: bytes):
+                with lock:
+                    self.wfile.write(data)
+                    self.wfile.flush()
+
+            def emit(obj):
+                write((json.dumps(obj, ensure_ascii=False, default=str) + "\n").encode())
+
+            def keepalive():
+                while not done.wait(KEEPALIVE_S):
+                    try:
+                        write(b"\n")
+                    except OSError:  # client gone; the next step emit ends the run as before
+                        return
+
+            threading.Thread(target=keepalive, daemon=True).start()
             try:
                 result = investigate(self._question(), Handler.llm, on_step=lambda st: emit({"step": st}))
                 emit({"result": result})
+            except OSError:
+                pass  # client disconnected; nothing left to tell it
             except Exception as exc:
-                emit({"error": f"{type(exc).__name__}: {exc}"[:400]})
+                try:
+                    emit({"error": f"{type(exc).__name__}: {exc}"[:400]})
+                except OSError:
+                    pass
+            finally:
+                done.set()
             return
         if self.path != "/ask":
             self.send_error(404)
