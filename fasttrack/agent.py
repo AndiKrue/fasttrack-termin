@@ -30,6 +30,9 @@ DISTRICTS = _values("practices", "district")
 TOPICS = _values("rules", "topic")
 CHANNELS = _values("waits", "channel")
 REDRAFT = "\nThis query returned 0 rows:\n{sql}\nRelax the district or name filter (LIKE or IN); keep the specialty filter."
+# Seven rows: when no planned query reached the rules, all of them are read.
+RULES_QUESTION = "Which rules of the appointment system apply?"
+RULES_SQL = "SELECT rule_id, topic, rule, legal_basis FROM FT_RULES.rules"
 
 PLANNER = (
     "You help statutory-insurance patients in Berlin reach a specialist appointment fast. "
@@ -52,6 +55,9 @@ SQL = (
     + "; accepts_new_patients and online_booking "
     "are the strings 'yes' or 'no'; days_to_appointment is a number. Join waits to practices on practice_id. "
     "Prefer simple filters (lower(specialty) = '...') over subqueries.\n"
+    "Which table answers what: rules, patient rights, 116117, the appointment service, referrals, urgency codes "
+    "and open consultation duties -> FT_RULES.rules; practices by district or specialty -> FT_PRACTICES.practices; "
+    "waiting days and booking channels -> FT_WAITS.waits joined to practices on practice_id.\n"
     "Use the schema-qualified table names exactly as shown and give each table a short alias "
     "(FROM FT_PRACTICES.practices p JOIN FT_WAITS.waits w ...); qualify columns with the alias only, "
     "never as schema.table.column. No semicolon. "
@@ -106,12 +112,13 @@ def investigate(question: str, llm, source=None, memory=None, search=None, on_st
             except Exception as exc:  # a bad query is recorded, never fatal
                 queries.append({"question": q, "error": f"{type(exc).__name__}: {exc}"[:300], **({"attempts": attempts} if attempts else {})})
                 continue
-            ids = []
-            for row in rows:
-                eid = f"E{len(evidence) + 1}"
-                evidence[eid] = {"sql": sql, "row": row}
-                ids.append(eid)
-            queries.append({"question": q, "sql": sql, "evidence": ids, **({"attempts": attempts} if attempts else {})})
+            queries.append({"question": q, "sql": sql, "evidence": _cite(evidence, sql, rows), **({"attempts": attempts} if attempts else {})})
+        if not any("ft_rules." in x.get("sql", "").lower() and x["evidence"] for x in queries if "sql" in x):
+            # The planner left the rules out, but they decide most routes (116117, referral, open consultation).
+            try:
+                queries.append({"question": RULES_QUESTION, "sql": RULES_SQL, "evidence": _cite(evidence, RULES_SQL, source.query(RULES_SQL)), "fixed": True})
+            except Exception as exc:
+                queries.append({"question": RULES_QUESTION, "error": f"{type(exc).__name__}: {exc}"[:300], "fixed": True})
         _add(trace, notify, {"step": "query", "queries": queries})
 
         if web is not None:
@@ -184,6 +191,16 @@ def investigate(question: str, llm, source=None, memory=None, search=None, on_st
         "trace": trace,
         "model_calls": getattr(llm, "calls", [])[first_call:],
     }
+
+
+def _cite(evidence: dict, sql: str, rows: list[dict]) -> list[str]:
+    """Give each row the next evidence id; return the ids."""
+    ids = []
+    for row in rows:
+        eid = f"E{len(evidence) + 1}"
+        evidence[eid] = {"sql": sql, "row": row}
+        ids.append(eid)
+    return ids
 
 
 def _specialty(value) -> str | None:

@@ -244,3 +244,34 @@ class CatalogueTests(unittest.TestCase):
         self.assertEqual(q["attempts"][0]["rows"], 0)
         self.assertIn("LIKE", q["sql"])
         self.assertEqual(out["evidence"]["E1"]["row"]["practice_id"], "P01")
+
+
+class RulesTests(unittest.TestCase):
+    """WO-FT-REVIEW-01 part 2: every run reads the rules, even when the planner forgets them."""
+
+    class PracticesOnly(FakeLLM):
+        def json(self, role, system, user, max_tokens=2048, think=None):
+            if role == "planner":
+                return {"questions": ["orthopaedics practices in Treptow-Köpenick"]}
+            if role == "answer":
+                return {"routes": [{"route": "Appointment service", "expected_days": None, "why": "x", "evidence": ["E3"]}]}
+            return super().json(role, system, user, max_tokens)
+
+    def test_rules_query_is_added(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = investigate("knee, Köpenick", self.PracticesOnly(), LocalSource(), LocalStore(Path(d) / "m.jsonl"), search=False)
+        queries = out["trace"]["steps"][1]["queries"]
+        self.assertTrue(queries[-1]["fixed"])
+        self.assertEqual(len(queries[-1]["evidence"]), 7)
+        self.assertIn("rule_id", out["evidence"]["E3"]["row"])  # two practice rows, then the rules
+
+    def test_planned_rules_query_is_not_repeated(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = investigate("knee, Köpenick", FakeLLM(), LocalSource(), LocalStore(Path(d) / "m.jsonl"), search=False)
+        self.assertFalse(any(q.get("fixed") for q in out["trace"]["steps"][1]["queries"]))
+
+    def test_sql_prompt_says_which_table_answers_what(self):
+        from fasttrack.agent import SQL
+
+        self.assertIn("116117", SQL)
+        self.assertIn("-> FT_RULES.rules", SQL)
