@@ -4,7 +4,7 @@
 |---|---|
 | Repo | `fasttrack-termin` (`C:\Tools\fasttrack-termin`) |
 | Branch | `voice` (from `post-hackathon`). Never merge into `main` before 6 Nov 2026: `main` and tag `hackathon-submission-2026-10-27` are the judged state. |
-| Deploy | Not before the results call (6 Nov 2026, 16:00 UTC). Until then the live stack runs `post-hackathon`. |
+| Deploy | Part A (deliverables 1, 2, 4, 5, 6): a fix of the submitted Speak / Read aloud buttons (commit 0d32a7f, before the deadline) that do not work inside Telegram's WebView. May go to the live stack via `post-hackathon` once accepted on the test port. Part B (deliverable 3, bot voice messages): new feature, not in the submission; live only after the results call (6 Nov 2026, 16:00 UTC). |
 | Executor | Claude Code on the laptop (has the running stack, Nightshift and a phone for Telegram tests) |
 | Readiness | READY |
 
@@ -44,7 +44,7 @@ mini app / web Read aloud ─▶ POST /tts ─▶ llm.speak() ─▶ Nightshift 
      returns `{"text": "..."}`. Reject other types with 415, larger bodies with 413.
    - `POST /tts`: JSON `{"text": "..."}`, max 1500 characters; returns `audio/mpeg`.
    - Never log audio, text bodies or tokens.
-3. `fasttrack/telegram_bot.py`: handle `message.voice` (and `message.audio`): `getFile` → download from
+3. **Part B, after 6 Nov.** `fasttrack/telegram_bot.py`: handle `message.voice` (and `message.audio`): `getFile` → download from
    `https://api.telegram.org/file/bot<token>/<path>` (token redacted in every error) → `transcribe` → reply
    "I heard: <text>" → run the normal investigation with the live status message. Max 60 s voice; longer gets a
    polite refusal. `/start` text mentions "send a voice message".
@@ -78,7 +78,14 @@ mini app / web Read aloud ─▶ POST /tts ─▶ llm.speak() ─▶ Nightshift 
 4. Phone: voice message to the test bot → transcription → routes. Mini app on the test port via a second quick
    tunnel → Speak and Read aloud work on Android and iOS.
 
-## 5. Rules
+## 5. Branch flow
+
+1. Build part A and part B on `voice`, part B behind its own commits.
+2. After part A passes host acceptance on the test port: cherry-pick only the part A commits onto `post-hackathon`,
+   push, `docker compose up --build -d app bot` on the live stack.
+3. Part B stays on `voice` until 6 Nov.
+
+## 6. Rules
 
 - Commit as `Andreas Krüger <AndiKrue@users.noreply.github.com>`, trailer `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 - Stage files by name; never commit `.env`, audio files or `bot-qr.png`.
