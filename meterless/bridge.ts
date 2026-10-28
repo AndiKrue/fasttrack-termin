@@ -11,7 +11,8 @@ const hmem = new HMEM({ actor: "fasttrack-termin", persistDir: process.env.FT_HM
 if (req.op === "remember") {
   const r = req.record;
   const m = hmem.add({
-    content: `${r.route}: ${r.why}`,
+    // The patient's question is stored with the route: recall matches new questions against it.
+    content: `${r.question} -> ${r.route}: ${r.why}`,
     type: "factual",
     layer: "working",
     tags: ["fasttrack", `run:${r.run_id}`],
@@ -20,7 +21,8 @@ if (req.op === "remember") {
   });
   process.stdout.write(JSON.stringify({ id: m.id, ledger: hmem.ledger.history(m.id).map((e) => e.action) }));
 } else if (req.op === "recall") {
-  const q = hmem.query(String(req.query ?? ""), { topN: Number(req.limit ?? 5) });
+  // H-MEM's default threshold (0.35 after confidence) drops paraphrased questions; 0.2 keeps related ones.
+  const q = hmem.query(String(req.query ?? ""), { topN: Number(req.limit ?? 5), threshold: Number(process.env.FT_HMEM_THRESHOLD ?? 0.2) });
   process.stdout.write(
     JSON.stringify({
       records: q.memories.map((x) => ({
