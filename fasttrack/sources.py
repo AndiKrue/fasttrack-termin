@@ -46,11 +46,24 @@ NICKNAMES = {
 _LITERAL = re.compile(r"'([^']*)'")
 
 
+def _fold(text: str) -> str:
+    """Lower case with umlauts spelled out, so 'Köpenick', 'koepenick' and 'KOEPENICK' compare equal."""
+    return text.lower().replace("ä", "ae").replace("ö", "oe").replace("ü", "ue").replace("ß", "ss")
+
+
+with open(SEED / "practices.csv", encoding="utf-8", newline="") as _f:
+    # the models also write stored names with the umlaut spelled out ('treptow-koepenick')
+    _LOOKUP = {_fold(row["district"]): row["district"] for row in csv.DictReader(_f)}
+_LOOKUP.update({_fold(k): v for k, v in NICKNAMES.items()})
+
+
 def canonical_sql(sql: str) -> str:
     """Replace nickname literals with the stored value; a lower-case literal stays lower-case."""
 
     def swap(m):
-        value = NICKNAMES.get(m.group(1).strip().lower())
+        value = _LOOKUP.get(_fold(m.group(1).strip()))
+        if value is not None and value == m.group(1):
+            return m.group(0)
         if value is None:
             return m.group(0)
         return f"'{value.lower() if m.group(1) == m.group(1).lower() else value}'"

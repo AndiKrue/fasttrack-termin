@@ -218,6 +218,10 @@ class CatalogueTests(unittest.TestCase):
         self.assertEqual(LocalSource().query(sql), [])
         self.assertEqual(LocalSource().query(canonical_sql(sql)), [{"practice_id": "P01"}])
         self.assertIn("lower(specialty) = 'ent'", canonical_sql("... lower(specialty) = 'hno'"))
+        spelled = "SELECT practice_id FROM FT_PRACTICES.practices p WHERE lower(p.district) = 'treptow-koepenick' AND specialty = 'orthopaedics'"
+        self.assertIn("'treptow-köpenick'", canonical_sql(spelled))  # as a live run wrote it
+        self.assertEqual(LocalSource().query(canonical_sql(spelled)), [{"practice_id": "P01"}])
+        self.assertEqual(canonical_sql("district = 'Mitte'"), "district = 'Mitte'")
 
     def test_prompt_lists_the_stored_values(self):
         from fasttrack.agent import SQL
