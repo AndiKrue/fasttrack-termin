@@ -275,3 +275,44 @@ class RulesTests(unittest.TestCase):
 
         self.assertIn("116117", SQL)
         self.assertIn("-> FT_RULES.rules", SQL)
+
+
+class RevisionTests(unittest.TestCase):
+    """WO-FT-REVIEW-01 part 3: one rewrite when the verifier keeps nothing, never otherwise."""
+
+    class Counting(FakeLLM):
+        def __init__(self, verdicts):
+            self.verdicts, self.answers, self.answer_users = list(verdicts), 0, []
+
+        def json(self, role, system, user, max_tokens=2048, think=None):
+            if role == "answer":
+                self.answers += 1
+                self.answer_users.append(user)
+            if role == "verifier":
+                return self.verdicts.pop(0)
+            return super().json(role, system, user, max_tokens)
+
+    def run_with(self, *verdicts):
+        llm = self.Counting(verdicts)
+        with tempfile.TemporaryDirectory() as d:
+            out = investigate("knee, Köpenick", llm, LocalSource(), LocalStore(Path(d) / "m.jsonl"), search=False)
+        return llm, out
+
+    def test_nothing_kept_gets_one_revision(self):
+        llm, out = self.run_with({"keep": [], "notes": ["over-claims", "no row"]}, {"keep": [0]})
+        self.assertEqual(llm.answers, 2)
+        self.assertIn("over-claims", llm.answer_users[1])
+        self.assertEqual([r["route"] for r in out["routes"]], ["Open consultation"])
+        steps = [s["step"] for s in out["trace"]["steps"]]
+        self.assertEqual(steps[-3:], ["verify", "revise", "verify"])
+        self.assertTrue(out["dropped"][-1]["revision"])
+
+    def test_second_empty_verdict_is_final(self):
+        llm, out = self.run_with({"keep": []}, {"keep": []})
+        self.assertEqual(llm.answers, 2)
+        self.assertEqual(out["routes"], [])
+
+    def test_kept_route_means_no_revision(self):
+        llm, out = self.run_with({"keep": [0]})
+        self.assertEqual(llm.answers, 1)
+        self.assertNotIn("revise", [s["step"] for s in out["trace"]["steps"]])

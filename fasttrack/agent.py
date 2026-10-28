@@ -77,6 +77,11 @@ VERIFY = (
     "specialty than the patient needs. "
     'Return {"keep": [indexes of supported routes], "notes": ["why a route was dropped"]}.'
 )
+REVISE = (
+    "\nThe verifier dropped every route of your first answer: {dropped}\n"
+    "Rewrite or replace those claims so that every statement is supported by the rows you cite. "
+    "Cite only the evidence ids given above."
+)
 
 
 def investigate(question: str, llm, source=None, memory=None, search=None, on_step=None) -> dict:
@@ -137,12 +142,39 @@ def investigate(question: str, llm, source=None, memory=None, search=None, on_st
 
     rows_text = json.dumps({k: v["row"] for k, v in evidence.items()}, ensure_ascii=False)
     prior = json.dumps(recalled, ensure_ascii=False)
-    draft = llm.json(
-        "answer",
-        ANSWER,
-        f"Patient question: {question}\nEvidence rows: {rows_text}\nEarlier verified findings: {prior}",
-        max_tokens=8192,
-    )
+    ask = f"Patient question: {question}\nEvidence rows: {rows_text}\nEarlier verified findings: {prior}"
+    draft = llm.json("answer", ANSWER, ask, max_tokens=8192)
+    routes, kept, dropped, notes = _verify(llm, draft, evidence, specialty, source)
+    _add(trace, notify, {"step": "verify", "kept": len(kept), "dropped": len(routes) - len(kept), "notes": notes})
+
+    if not kept and evidence:
+        # Nothing survived: the answer role rewrites once with the verifier's reasons, the result is
+        # verified once more, and that is final. The verifier never writes SQL.
+        draft = llm.json("answer", ANSWER, ask + REVISE.format(dropped=json.dumps(dropped, ensure_ascii=False)), max_tokens=8192)
+        _add(trace, notify, {"step": "revise", "routes": len([r for r in draft.get("routes", []) if isinstance(r, dict)])})
+        routes, kept, again, more = _verify(llm, draft, evidence, specialty, source)
+        for d in again:
+            d["revision"] = True
+        dropped, notes = dropped + again, notes + more
+        _add(trace, notify, {"step": "verify", "kept": len(kept), "dropped": len(routes) - len(kept), "notes": more, "revision": True})
+
+    for r in kept:
+        memory.remember({"run_id": run_id, "at": stamp(), "question": question, "route": r["route"], "why": r["why"], "evidence": {e: evidence[e] for e in r["evidence"]}})
+
+    return {
+        "run_id": run_id,
+        "routes": kept,
+        "caveats": draft.get("caveats", []),
+        "dropped": dropped,
+        "verifier_notes": notes,
+        "evidence": {e: evidence[e] for r in kept for e in r["evidence"]},
+        "trace": trace,
+        "model_calls": getattr(llm, "calls", [])[first_call:],
+    }
+
+
+def _verify(llm, draft: dict, evidence: dict, specialty: str | None, source):
+    """Check one answer draft: (routes, kept, dropped with reasons, verifier notes)."""
     routes = [r for r in draft.get("routes", []) if isinstance(r, dict)]
     for r in routes:  # citations must name real evidence
         r["evidence"] = [e for e in r.get("evidence", []) if e in evidence]
@@ -176,21 +208,7 @@ def investigate(question: str, llm, source=None, memory=None, search=None, on_st
             d["note"] = n
     for r in kept:  # the plain path from each claim back to its source
         r["why_trace"] = [{"eid": e, "sql_or_query": evidence[e]["sql"], "url": evidence[e].get("url")} for e in r["evidence"]]
-    _add(trace, notify, {"step": "verify", "kept": len(kept), "dropped": len(routes) - len(kept), "notes": verdict.get("notes", [])})
-
-    for r in kept:
-        memory.remember({"run_id": run_id, "at": stamp(), "question": question, "route": r["route"], "why": r["why"], "evidence": {e: evidence[e] for e in r["evidence"]}})
-
-    return {
-        "run_id": run_id,
-        "routes": kept,
-        "caveats": draft.get("caveats", []),
-        "dropped": dropped,
-        "verifier_notes": notes,
-        "evidence": {e: evidence[e] for r in kept for e in r["evidence"]},
-        "trace": trace,
-        "model_calls": getattr(llm, "calls", [])[first_call:],
-    }
+    return routes, kept, dropped, notes
 
 
 def _cite(evidence: dict, sql: str, rows: list[dict]) -> list[str]:
