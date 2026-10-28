@@ -32,6 +32,7 @@ button.ghost{background:var(--card);color:var(--fg);border:1px solid var(--line)
 .days{font-weight:600}
 .row{display:flex;flex-wrap:wrap;gap:6px;margin-top:.5rem}
 details{margin-top:.4rem}summary{cursor:pointer;color:var(--link);font-size:.85rem}
+.facts{display:grid;grid-template-columns:max-content 1fr;gap:.15rem .7rem;margin:.4rem 0;font-size:.88rem}.facts dt{color:var(--hint)}.facts dd{margin:0}.raw summary{font-size:.78rem;color:var(--hint)}
 pre{white-space:pre-wrap;word-break:break-word;background:var(--card);padding:.5rem;border-radius:8px;font-size:.78rem;margin:.3rem 0}
 a{color:var(--link)}
 .err{color:#dc2626}
@@ -172,6 +173,26 @@ function readAloudButton(label, text) {
   };
   return b;
 }
+// Evidence in plain words: where it comes from, and the fields that matter, labelled.
+const FIELD_LABELS = {
+  name: "Practice", specialty: "Specialty", district: "District", address: "Address", phone: "Phone",
+  open_consultation: "Open consultation", accepts_new_patients: "New patients", days_to_appointment: "Days to appointment",
+  channel: "Channel", observed_on: "Observed on", rule: "Rule", topic: "Topic", legal_basis: "Legal basis",
+  applies_to: "Applies to", online_booking: "Online booking", sample: "Sample data", avg_wait: "Average wait (days)",
+};
+function sourceName(ev) {
+  if (ev.url) { try { return new URL(ev.url).host; } catch (e) { return "web page"; } }
+  const tables = [...String(ev.sql || "").matchAll(/\b(?:FROM|JOIN)\s+([\w.]+)/gi)].map((m) => m[1]);
+  return tables.length ? "Zetaris " + [...new Set(tables)].join(" + ") : "Zetaris";
+}
+function factList(row) {
+  const dl = el("dl", undefined, "facts");
+  for (const [k, v] of Object.entries(row)) {
+    if (v === null || v === undefined || v === "" || k === "url") continue;
+    dl.append(el("dt", FIELD_LABELS[k] || k.replace(/_/g, " ")), el("dd", String(v)));
+  }
+  return dl;
+}
 function practiceRow(x, result) {
   for (const id of x.evidence || []) {
     const row = Object.fromEntries(Object.entries(((result.evidence || {})[id] || {}).row || {}).map(([k, v]) => [k.toLowerCase(), v]));
@@ -269,9 +290,11 @@ function render(result) {
     for (const id of x.evidence || []) {
       const ev = result.evidence[id]; if (!ev) continue;
       const row = Object.fromEntries(Object.entries(ev.row || {}).map(([k, v]) => [k.toLowerCase(), v])); // Zetaris may upper-case column names
-      const table = ((ev.sql || "").match(/\bFROM\s+([\w.]+)/i) || [])[1] || "sql";
-      const det = el("details"); det.append(el("summary", id + " · " + (ev.url ? "web" : table)));
-      det.append(el("pre", ev.sql), el("pre", JSON.stringify(row, null, 1)));
+      const det = el("details"); det.append(el("summary", id + " · " + sourceName(ev)));
+      det.append(factList(row));
+      // Raw evidence stays one tap away for anyone who wants to check the exact query and row.
+      const raw = el("details", undefined, "raw"); raw.append(el("summary", "Raw data"), el("pre", ev.sql), el("pre", JSON.stringify(row, null, 1)));
+      det.append(raw);
       card.append(det);
       if (ev.url && !seen.has(ev.url)) { seen.add(ev.url); const b = el("button", "Source", "act ghost"); b.type = "button"; b.onclick = () => openLink(ev.url); actions.append(b); }
       if (row.phone && !seen.has("tel" + row.phone)) { seen.add("tel" + row.phone); const b = el("button", "Call " + row.phone, "act"); b.type = "button"; b.onclick = () => call(row.phone); actions.append(b); }
