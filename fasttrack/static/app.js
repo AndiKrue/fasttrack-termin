@@ -439,8 +439,38 @@ $("go").onclick = ask;
 $("q").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) ask(); });
 
 // ---- speech: Web Speech API only, started by the user, never auto-played ----
-const SPEECH_LANG = /^de\b/i.test(navigator.language || "") ? "de-DE" : "en-US";
+// Recognition follows the browser language; answers are written in English, so they are read in English.
+const SPEECH_LANG = /^de/i.test(navigator.language || "") ? "de-DE" : "en-US";
+const READ_LANG = "en-US";
 let speakingBtn = null;
+let utterances = []; // kept referenced: Chrome drops utterances that are garbage-collected mid-speech
+const MIC_ERRORS = {
+  "not-allowed": "Microphone blocked: allow it in the address bar",
+  "service-not-allowed": "Speech service blocked in this browser",
+  "network": "Speech service unreachable",
+  "no-speech": "No speech heard, try again",
+  "audio-capture": "No microphone found",
+};
+function pickVoice() {
+  const voices = speechSynthesis.getVoices();
+  return voices.find((v) => v.lang === READ_LANG) || voices.find((v) => /^en/i.test(v.lang || "")) || null;
+}
+if ("speechSynthesis" in window) speechSynthesis.getVoices(); // starts loading the voice list early
+function speakText(text, onDone) {
+  speechSynthesis.cancel();
+  const voice = pickVoice();
+  // Short chunks: Chrome stops long utterances after ~15 s.
+  utterances = (text.match(/[^.!?]+[.!?]*/g) || [text]).map((chunk) => {
+    const u = new SpeechSynthesisUtterance(chunk.trim());
+    u.lang = READ_LANG;
+    if (voice) u.voice = voice;
+    u.onerror = onDone;
+    return u;
+  });
+  utterances[utterances.length - 1].onend = onDone;
+  // speak() right after cancel() is dropped by Chrome; a short delay lets the cancel settle.
+  setTimeout(() => utterances.forEach((u) => speechSynthesis.speak(u)), 150);
+}
 
 function routeSpeech(route, p) {
   const parts = [route.route + "."];
@@ -469,13 +499,10 @@ function readAloudButton(label, text) {
     speechSynthesis.cancel();
     stopReading();
     if (again) return; // second press stops
-    const u = new SpeechSynthesisUtterance(text());
-    u.lang = SPEECH_LANG;
-    u.onend = u.onerror = () => { if (speakingBtn === b) stopReading(); };
     speakingBtn = b;
     b.setAttribute("aria-pressed", "true");
     b.textContent = "Stop reading";
-    speechSynthesis.speak(u);
+    speakText(text(), () => { if (speakingBtn === b) stopReading(); });
   };
   return b;
 }
@@ -495,8 +522,12 @@ function readAloudButton(label, text) {
     rec.lang = SPEECH_LANG;
     rec.interimResults = true;
     rec.onresult = (e) => { $("q").value = [...e.results].map((x) => x[0].transcript).join(""); }; // interim, then final; never submits
-    rec.onend = done;
-    rec.onerror = done;
+rec.onend = () => { if (rec) done(); };
+    rec.onerror = (e) => {
+      done();
+      mic.textContent = MIC_ERRORS[e.error] || "Speech error: " + e.error;
+      setTimeout(() => { if (!rec) mic.textContent = "Speak"; }, 4000);
+    };
     rec.start();
     mic.setAttribute("aria-pressed", "true");
     mic.classList.add("listening");
