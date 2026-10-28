@@ -13,7 +13,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from .env import load_env
 from .agent import investigate
-from .llm import Nemotron
+from .llm import open_llm
 
 # A blank NDJSON line this often while a step runs: the Cloudflare quick tunnel drops a stream that
 # stays silent for about 100 s, and a slow answer step sends nothing. Both clients skip blank lines.
@@ -52,7 +52,7 @@ document.getElementById('go').onclick=async()=>{
   (d.caveats||[]).forEach(c=>out.append(el('p','Note: '+c,'muted')));
   const det=el('details');det.append(el('summary','Trace: plan, queries, web, verifier'));
   d.trace.steps.forEach(st=>det.append(el('pre',JSON.stringify(st,null,1),'ev')));out.append(det);
-  out.append(el('p','Run '+d.run_id+' | source '+d.trace.source+' | web '+(d.trace.web||'off')+' | memory '+d.trace.memory+' | '+d.model_calls.length+' Nemotron calls','muted'));
+  out.append(el('p',(d.sample_mode?'SAMPLE MODE (recorded model replies) | ':'')+'Run '+d.run_id+' | source '+d.trace.source+' | web '+(d.trace.web||'off')+' | memory '+d.trace.memory+' | '+d.model_calls.length+' Nemotron calls','muted'));
 };
 </script></body></html>"""
 
@@ -145,7 +145,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     load_env()
-    Handler.llm = Nemotron()
+    Handler.llm = open_llm()
     port = int(os.environ.get("FT_PORT", "8765"))
     print(f"FastTrack Termin on http://127.0.0.1:{port}")
     ThreadingHTTPServer((os.environ.get("FT_HOST", "127.0.0.1"), port), Handler).serve_forever()

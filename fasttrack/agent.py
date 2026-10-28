@@ -14,8 +14,8 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 import uuid
 
-from .memory import open_memory, stamp
-from .sources import SCHEMA, SEED, canonical_sql, open_source
+from .memory import ROOT, LocalStore, open_memory, stamp
+from .sources import SCHEMA, SEED, LocalSource, canonical_sql, open_source
 from .web import open_search, web_evidence
 
 
@@ -25,6 +25,7 @@ def _values(table: str, column: str) -> list[str]:
         return sorted({row[column] for row in csv.DictReader(f)})
 
 
+SAMPLE_MEMORY = ROOT / "runs" / "sample-memory.jsonl"
 SPECIALTIES = _values("practices", "specialty")
 DISTRICTS = _values("practices", "district")
 TOPICS = _values("rules", "topic")
@@ -85,8 +86,11 @@ REVISE = (
 
 
 def investigate(question: str, llm, source=None, memory=None, search=None, on_step=None) -> dict:
-    source = source or open_source()
-    memory = memory or open_memory()
+    sample = getattr(llm, "sample", False)  # recorded replies: local data only, nothing sent anywhere
+    source = source or (LocalSource() if sample else open_source())
+    memory = memory or (LocalStore(SAMPLE_MEMORY) if sample else open_memory())
+    if sample:
+        search = False
     run_id = uuid.uuid4().hex[:8]
     first_call = len(getattr(llm, "calls", []))  # the client is shared across requests: report only this run's calls
     notify = on_step or (lambda step: None)
@@ -170,6 +174,7 @@ def investigate(question: str, llm, source=None, memory=None, search=None, on_st
         "evidence": {e: evidence[e] for r in kept for e in r["evidence"]},
         "trace": trace,
         "model_calls": getattr(llm, "calls", [])[first_call:],
+        "sample_mode": sample,
     }
 
 

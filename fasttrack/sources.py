@@ -124,5 +124,14 @@ def _typed(value: str):
 
 
 def open_source():
-    """Zetaris when ZETARIS_JDBC_JAR is set, otherwise the local stand-in."""
-    return ZetarisSource() if os.environ.get("ZETARIS_JDBC_JAR") else LocalSource()
+    """Zetaris when ZETARIS_JDBC_JAR is set and Lightning answers, otherwise the local stand-in.
+
+    The answer footer names the backend (trace source), so a fallback never shows as Zetaris.
+    """
+    if not os.environ.get("ZETARIS_JDBC_JAR"):
+        return LocalSource()
+    try:
+        return ZetarisSource()
+    except Exception as exc:
+        print(f"[zetaris] connect failed ({type(exc).__name__}: {str(exc)[:200]}); using local-sqlite", flush=True)
+        return LocalSource()

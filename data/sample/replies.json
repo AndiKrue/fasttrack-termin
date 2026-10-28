@@ -1,0 +1,45 @@
+{
+  "_license": "SPDX-License-Identifier: AGPL-3.0-or-later. Recorded model replies for sample mode (FT_SAMPLE=1): the demo question about knee pain in Köpenick, answered from the SAMPLE seed rows.",
+  "planner": {
+    "questions": [
+      "Which orthopaedics practices in Treptow-Köpenick have which waiting times per channel?",
+      "Which rules on open consultation, the appointment service and GP referrals apply?"
+    ],
+    "specialty": "orthopaedics"
+  },
+  "sql": {
+    "Which orthopaedics practices in Treptow-Köpenick have which waiting times per channel?": "SELECT p.practice_id, p.name, p.district, w.channel, w.days_to_appointment, p.sample FROM FT_PRACTICES.practices p JOIN FT_WAITS.waits w ON p.practice_id = w.practice_id WHERE lower(p.specialty) = 'orthopaedics' AND p.district = 'Treptow-Köpenick' ORDER BY w.days_to_appointment",
+    "Which rules on open consultation, the appointment service and GP referrals apply?": "SELECT rule_id, topic, rule, legal_basis FROM FT_RULES.rules WHERE topic IN ('open consultation', 'appointment service', 'GP referral') ORDER BY rule_id"
+  },
+  "sql_default": "SELECT rule_id, topic, rule, legal_basis FROM FT_RULES.rules",
+  "answer": {
+    "routes": [
+      {
+        "route": "Walk in to the open consultation of Sample Practice Orthopaedics Köpenick (SAMPLE data)",
+        "expected_days": 0,
+        "why": "The sample waiting data shows an open consultation at this Treptow-Köpenick orthopaedics practice with 0 days to an appointment (E1). Orthopaedic practices hold at least five hours of open consultation per week without appointment (E6).",
+        "evidence": ["E1", "E6"]
+      },
+      {
+        "route": "Ask your GP to arrange an urgent appointment, then use the appointment service 116117 (SAMPLE data)",
+        "expected_days": null,
+        "why": "Without an urgency code the appointment service has no four-week duty (E3). A GP can arrange an urgent specialist appointment (E7); with an urgent referral the appointment service must offer one within four weeks (E3).",
+        "evidence": ["E3", "E7"]
+      },
+      {
+        "route": "Book by phone with Sample Practice Orthopaedics Köpenick (SAMPLE data)",
+        "expected_days": 38,
+        "why": "The sample waiting data shows 38 days to an appointment by phone at this practice (E2).",
+        "evidence": ["E2"]
+      }
+    ],
+    "caveats": [
+      "Sample mode: these are recorded model replies for the demo question about knee pain in Köpenick. Your question was not sent to a model, and practices and waiting times are SAMPLE data.",
+      "Not medical advice. In an emergency call 112."
+    ]
+  },
+  "verifier": {
+    "keep": [0, 1, 2],
+    "notes": []
+  }
+}

@@ -212,11 +212,15 @@ The page contains an example question about an orthopaedics appointment in Köpe
 
 ### Fallbacks and tests
 
-Without `ZETARIS_JDBC_JAR`, the agent uses an in-memory SQLite stand-in with the same three logical schemas and seed files. H-MEM is selected when its bridge and local `tsx` executable are available. Set `FT_MEMORY=local`, or omit the bridge installation, to use `runs/memory.jsonl` instead. A runtime H-MEM bridge error is reported; it does not silently switch to JSONL.
+Without `ZETARIS_JDBC_JAR`, the agent uses an in-memory SQLite stand-in with the same three logical schemas and seed files. When `ZETARIS_JDBC_JAR` is set but Lightning does not accept the connection, the failure is logged and the run uses the same stand-in; the footer then shows `local-sqlite`. H-MEM is selected when its bridge and local `tsx` executable are available. Set `FT_MEMORY=local`, or omit the bridge installation, to use `runs/memory.jsonl` instead. A runtime H-MEM bridge error is reported; it does not silently switch to JSONL.
 
 Without `FIRECRAWL_API_KEY`, web search is disabled. Web search failures appear in the trace; the remaining evidence workflow continues.
 
-These fallbacks support development, but do not demonstrate the live Zetaris/H-MEM integration. The app still requires NVIDIA API access.
+When Meterless Nightshift is the provider and a call fails without a connection or with a 5xx status, the same call goes to the NVIDIA API if `NVIDIA_API_KEY` is set; the model-calls list records the provider of each call.
+
+With `FT_SAMPLE=1`, or without any model credentials, the app runs in **sample mode**: recorded model replies from `data/sample/replies.json` for the Köpenick knee question, the SQLite stand-in, no web search and a separate `runs/sample-memory.jsonl`. Nothing is sent to a model, any question gets the recorded case, and the footer and caveats say SAMPLE MODE.
+
+These fallbacks support development, but do not demonstrate the live Zetaris/H-MEM integration.
 
 Run the offline unit tests from the repository root:
 

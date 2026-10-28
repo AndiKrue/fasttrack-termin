@@ -14,6 +14,7 @@ import json
 import os
 import re
 import time
+from pathlib import Path
 
 import httpx
 
@@ -23,11 +24,13 @@ REASONING = "\n\x00REASONING\x00\n"
 NIGHTSHIFT = os.environ.get("METERLESS_BASE_URL", "").rstrip("/")
 if NIGHTSHIFT and not NIGHTSHIFT.endswith("/v1"):
     NIGHTSHIFT += "/v1"
-BASE = NIGHTSHIFT or os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
+NVIDIA_BASE = os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
+BASE = NIGHTSHIFT or NVIDIA_BASE
 PROVIDER = "meterless-nightshift" if NIGHTSHIFT else "nvidia-api"
+SAMPLE_REPLIES = Path(__file__).resolve().parent.parent / "data" / "sample" / "replies.json"
 # Under Nightshift every role asks for a meterless/* route (METERLESS_MODEL, default meterless/auto; pin a
 # Nemotron-backed lane per role with FT_MODEL_*). The model Nightshift actually used is recorded per call.
-_DEFAULT = {
+_DEFAULT = _NVIDIA = {
     "planner": "nvidia/nemotron-3.5-lightning-30b-a3b",
     "sql": "nvidia/nemotron-3.5-lightning-30b-a3b",
     "answer": "nvidia/nemotron-3-ultra-550b-a55b",
@@ -58,9 +61,14 @@ class Nemotron:
         self.provider = PROVIDER
         self.http = httpx.Client(base_url=BASE, timeout=timeout)
         self.calls: list[dict] = []
+        # Nightshift down (no connection, 5xx) -> the same call on the NVIDIA API, when a key is set.
+        backup_key = os.environ.get("NVIDIA_API_KEY", "") if NIGHTSHIFT else ""
+        self.backup = httpx.Client(base_url=NVIDIA_BASE, timeout=timeout) if backup_key else None
+        self.backup_headers = {"Authorization": f"Bearer {backup_key}"}
 
     def chat(self, role: str, system: str, user: str, max_tokens: int = 2048, model: str | None = None, think: bool | None = None) -> str:
         started = time.monotonic()
+        last_try = model is not None  # json() passes a model only for its last try on Ultra
         model = model or MODELS[role]
         body = {
             "model": model,
@@ -72,8 +80,19 @@ class Nemotron:
             think = role not in NO_THINK
         if not think and model == MODELS[role]:  # the fallback retry keeps its reasoning
             body["chat_template_kwargs"] = {"enable_thinking": False}
-        r = self.http.post("/chat/completions", json=body, headers=self.headers)
-        print(f"[nemotron] {role} {model} via {self.provider} -> {r.status_code} in {time.monotonic() - started:.1f}s", flush=True)
+        provider = self.provider
+        try:
+            r = self.http.post("/chat/completions", json=body, headers=self.headers)
+            status = r.status_code
+        except httpx.TransportError as exc:
+            if self.backup is None:
+                raise
+            r, status = None, type(exc).__name__
+        print(f"[nemotron] {role} {model} via {provider} -> {status} in {time.monotonic() - started:.1f}s", flush=True)
+        if self.backup is not None and (r is None or r.status_code >= 500):
+            provider, model = "nvidia-api", _NVIDIA["fallback" if last_try else role]
+            r = self.backup.post("/chat/completions", json={**body, "model": model}, headers=self.backup_headers)
+            print(f"[nemotron] {role} {model} via {provider} (Nightshift fallback) -> {r.status_code} in {time.monotonic() - started:.1f}s", flush=True)
         r.raise_for_status()
         data = r.json()
         usage = data.get("usage") or {}
@@ -81,7 +100,7 @@ class Nemotron:
             {
                 "role": role,
                 "model": model,
-                "provider": self.provider,
+                "provider": provider,
                 "served_model": data.get("model"),
                 "seconds": round(time.monotonic() - started, 2),
                 "tokens_in": usage.get("prompt_tokens"),
@@ -134,3 +153,37 @@ def parse_json(text: str):
         if found is not None:
             return found
     raise ValueError("model reply contained no JSON")
+
+
+class SampleLLM:
+    """Recorded model replies for the demo question (FT_SAMPLE=1, or no model credentials at all).
+
+    Nothing leaves the machine: the planner, SQL, answer and verifier replies come from
+    data/sample/replies.json, the queries run on the local SQLite stand-in, and every answer
+    says it is sample mode. Any question gets the recorded Köpenick knee case.
+    """
+
+    sample = True
+    provider = "sample"
+
+    def __init__(self, path: Path = SAMPLE_REPLIES):
+        self.replies = json.loads(path.read_text(encoding="utf-8"))
+        self.calls: list[dict] = []
+
+    def json(self, role: str, system: str, user: str, max_tokens: int = 8192, think: bool | None = None):
+        self.calls.append({"role": role, "model": "recorded", "provider": self.provider, "seconds": 0})
+        if role == "sql":
+            sql = self.replies["sql"].get(user.split("\n")[0], self.replies["sql_default"])
+            return {"sql": sql}
+        return json.loads(json.dumps(self.replies[role]))  # a fresh copy: the agent edits the routes
+
+
+def open_llm():
+    """Nemotron, or the recorded sample replies when FT_SAMPLE=1 or no model credentials are set."""
+    if os.environ.get("FT_SAMPLE") == "1":
+        return SampleLLM()
+    try:
+        return Nemotron()
+    except RuntimeError as exc:
+        print(f"[nemotron] {exc}: running in sample mode with recorded replies", flush=True)
+        return SampleLLM()

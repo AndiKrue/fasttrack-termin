@@ -250,9 +250,9 @@ def main(argv=None) -> None:
     if argv[:1] == ["--qr"]:
         write_qr(tg, argv[1] if len(argv) > 1 else "fasttrack-bot-qr.png")
         return
-    from .llm import Nemotron
+    from .llm import open_llm
 
-    bot = Bot(tg, Nemotron())
+    bot = Bot(tg, open_llm())
     try:
         set_menu_button(tg)
     except Exception as exc:  # the chat still works without the button

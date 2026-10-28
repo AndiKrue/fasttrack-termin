@@ -306,7 +306,7 @@ function render(result) {
     box.append(ul);
     out.append(box);
   }
-  out.append(el("p", "Run " + result.run_id + " · " + result.trace.source + " · web " + (result.trace.web || "off") + " · " + result.trace.memory + " · " + (result.model_calls || []).length + " Nemotron calls", "muted"));
+  out.append(el("p", (result.sample_mode ? "SAMPLE MODE (recorded model replies) · " : "") + "Run " + result.run_id + " · " + result.trace.source + " · web " + (result.trace.web || "off") + " · " + result.trace.memory + " · " + (result.model_calls || []).length + " Nemotron calls", "muted"));
   fillDistances(geoTargets);
 }
 

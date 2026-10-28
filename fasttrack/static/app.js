@@ -352,7 +352,7 @@ function renderResult(r) {
   det.append(el("summary", null, "Trace: every step, query and verifier note"), el("pre", null, JSON.stringify(t.steps || [], null, 2)));
   out.append(det);
 
-  $("runinfo").textContent =
+  $("runinfo").textContent = (r.sample_mode ? "SAMPLE MODE (recorded model replies) · " : "") +
     `Run ${r.run_id} · source ${t.source || "?"} · web ${t.web || "off"} · memory ${t.memory || "?"} · ` +
     `${(r.model_calls || []).length} Nemotron calls via ${((r.model_calls || [])[0] || {}).provider || "nvidia-api"}`;
 }
