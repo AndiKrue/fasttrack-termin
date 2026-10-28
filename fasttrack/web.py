@@ -24,8 +24,20 @@ EXTRACT = (
     "written in the text; leave a field null when the text does not state it. "
     'Return {"practices": [{"name": "...", "address": "...", "specialty": "...", '
     '"open_consultation": "exact wording or null", "phone": "... or null", '
-    '"accepts_new_patients": "exact wording or null", "url": "source url"}]}.'
+    '"accepts_new_patients": "exact wording or null", '
+    '"insurance": "exact wording on which patients are treated (Kassen, privat, Selbstzahler) or null", '
+    '"url": "source url"}]}.'
 )
+
+# The app is for statutory-insurance patients. A practice is dropped when the page says it is private or
+# self-pay only and names no statutory insurance; "alle Kassen und privat" stays.
+PRIVATE = ("privatpraxis", "privatpatient", "selbstzahler", "privatärzt", "privataerzt", "nur privat", "keine kassen")
+STATUTORY = ("kasse", "gkv", "gesetzlich")
+
+
+def statutory_ok(row: dict) -> bool:
+    text = " ".join(str(row.get(k) or "") for k in ("name", "insurance")).lower()
+    return not any(m in text for m in PRIVATE) or any(m in text for m in STATUTORY)
 
 
 class FirecrawlSearch:
@@ -38,7 +50,7 @@ class FirecrawlSearch:
         self.http = httpx.Client(timeout=timeout)
 
     def search(self, query: str, limit: int = 5) -> list[dict]:
-        q = query + "".join(f" -site:{d}de" for d in EXCLUDED)
+        q = query + " -Privatpraxis" + "".join(f" -site:{d}de" for d in EXCLUDED)
         r = self.http.post(
             ENDPOINT,
             headers={"Authorization": f"Bearer {self.key}"},
@@ -57,7 +69,11 @@ class FirecrawlSearch:
 
 def _extract(question: str, llm, page: dict) -> list[dict]:
     found = llm.json("verifier", EXTRACT, f"Patient need: {question}\nURL: {page['url']}\nTITLE: {page['title']}\n{page['text']}", max_tokens=2048, think=False)
-    return [p for p in found.get("practices", []) if isinstance(p, dict) and p.get("url") == page["url"]]
+    rows = [p for p in found.get("practices", []) if isinstance(p, dict) and p.get("url") == page["url"]]
+    kept = [p for p in rows if statutory_ok(p)]
+    if len(kept) < len(rows):
+        print(f"[web] dropped {len(rows) - len(kept)} private/self-pay practice(s) from {page['url']}", flush=True)
+    return kept
 
 
 def web_evidence(question: str, llm, search) -> tuple[str, list[dict]]:

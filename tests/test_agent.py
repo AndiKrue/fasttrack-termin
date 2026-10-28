@@ -83,6 +83,13 @@ class WebEvidenceTests(unittest.TestCase):
         self.assertEqual([r["name"] for r in rows], ["A"])
         self.assertIn("Köpenick", query)
 
+    def test_private_and_self_pay_practices_are_dropped(self):
+        from fasttrack.web import statutory_ok
+        self.assertFalse(statutory_ok({"name": "Privatpraxis Orthopädie Berlin – Dr. med. K. Stein"}))
+        self.assertFalse(statutory_ok({"name": "Praxis Nord", "insurance": "Privatpatienten und Selbstzahler"}))
+        self.assertTrue(statutory_ok({"name": "Praxis Süd", "insurance": "alle Kassen und privat"}))
+        self.assertTrue(statutory_ok({"name": "Orthopädie am Markt", "insurance": None}))
+
     def test_extraction_reads_at_most_three_pages_of_3000_chars(self):
         from fasttrack import web
 
