@@ -28,6 +28,36 @@ _SELECT = re.compile(r"^\s*select\b", re.IGNORECASE)
 _FORBIDDEN = re.compile(r"\b(insert|update|delete|drop|create|alter|attach|pragma|grant)\b|;", re.IGNORECASE)
 
 
+# Everyday names -> the value stored in the data. Applied to quoted SQL literals before a query runs,
+# so "district = 'Köpenick'" finds the Treptow-Köpenick rows instead of nothing.
+NICKNAMES = {
+    "köpenick": "Treptow-Köpenick", "koepenick": "Treptow-Köpenick", "treptow": "Treptow-Köpenick",
+    "friedrichshain": "Friedrichshain-Kreuzberg", "kreuzberg": "Friedrichshain-Kreuzberg",
+    "charlottenburg": "Charlottenburg-Wilmersdorf", "wilmersdorf": "Charlottenburg-Wilmersdorf",
+    "steglitz": "Steglitz-Zehlendorf", "zehlendorf": "Steglitz-Zehlendorf",
+    "hno": "ENT", "hals-nasen-ohren": "ENT",
+    "orthopädie": "orthopaedics", "orthopaede": "orthopaedics", "orthopäde": "orthopaedics", "orthopedics": "orthopaedics",
+    "hautarzt": "dermatology", "dermatologie": "dermatology",
+    "kardiologie": "cardiology", "kardiologe": "cardiology",
+    "augenheilkunde": "ophthalmology", "augenarzt": "ophthalmology",
+    "gynäkologie": "gynaecology", "frauenarzt": "gynaecology", "gynecology": "gynaecology",
+    "neurologie": "neurology", "neurologe": "neurology",
+}
+_LITERAL = re.compile(r"'([^']*)'")
+
+
+def canonical_sql(sql: str) -> str:
+    """Replace nickname literals with the stored value; a lower-case literal stays lower-case."""
+
+    def swap(m):
+        value = NICKNAMES.get(m.group(1).strip().lower())
+        if value is None:
+            return m.group(0)
+        return f"'{value.lower() if m.group(1) == m.group(1).lower() else value}'"
+
+    return _LITERAL.sub(swap, sql)
+
+
 def check_sql(sql: str) -> str:
     """Read-only guard: exactly one SELECT, no statement separator, no DDL/DML."""
     sql = sql.strip().rstrip(";").strip()

@@ -206,3 +206,41 @@ class SpecialtyTests(unittest.TestCase):
     def test_cardiology_rows_are_kept(self):
         _, out = self.run_case("cardiology")
         self.assertEqual([r["route"] for r in out["routes"]], ["Phone the practice"])
+
+
+class CatalogueTests(unittest.TestCase):
+    """WO-FT-REVIEW-01 part 1: exact values, nicknames, one redraft when a query finds nothing."""
+
+    def test_nickname_finds_the_borough(self):
+        from fasttrack.sources import canonical_sql
+
+        sql = "SELECT practice_id FROM FT_PRACTICES.practices WHERE district = 'Köpenick' AND specialty = 'orthopaedics'"
+        self.assertEqual(LocalSource().query(sql), [])
+        self.assertEqual(LocalSource().query(canonical_sql(sql)), [{"practice_id": "P01"}])
+        self.assertIn("lower(specialty) = 'ent'", canonical_sql("... lower(specialty) = 'hno'"))
+
+    def test_prompt_lists_the_stored_values(self):
+        from fasttrack.agent import SQL
+
+        for value in ("'Treptow-Köpenick'", "'Friedrichshain-Kreuzberg'", "'ENT'", "'gynaecology'", "'appointment service'", "'GP referral'"):
+            self.assertIn(value, SQL)
+
+    def test_empty_select_is_redrafted_once(self):
+        sql_users = []
+
+        class Empty(FakeLLM):
+            def json(self, role, system, user, max_tokens=2048, think=None):
+                if role == "sql" and "rules" not in user:
+                    sql_users.append(user)
+                    if "0 rows" in user:
+                        return {"sql": "SELECT p.practice_id, p.name FROM FT_PRACTICES.practices p WHERE p.district LIKE '%Köpenick%' AND p.specialty = 'orthopaedics'"}
+                    return {"sql": "SELECT p.practice_id, p.name FROM FT_PRACTICES.practices p WHERE p.district = 'Koepenick-Süd'"}
+                return super().json(role, system, user, max_tokens)
+
+        with tempfile.TemporaryDirectory() as d:
+            out = investigate("knee, Köpenick", Empty(), LocalSource(), LocalStore(Path(d) / "m.jsonl"), search=False)
+        self.assertEqual(len(sql_users), 2)
+        q = out["trace"]["steps"][1]["queries"][0]
+        self.assertEqual(q["attempts"][0]["rows"], 0)
+        self.assertIn("LIKE", q["sql"])
+        self.assertEqual(out["evidence"]["E1"]["row"]["practice_id"], "P01")

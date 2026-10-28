@@ -15,11 +15,21 @@ from concurrent.futures import ThreadPoolExecutor
 import uuid
 
 from .memory import open_memory, stamp
-from .sources import SCHEMA, SEED, open_source
+from .sources import SCHEMA, SEED, canonical_sql, open_source
 from .web import open_search, web_evidence
 
-with open(SEED / "practices.csv", encoding="utf-8", newline="") as _f:
-    SPECIALTIES = sorted({row["specialty"] for row in csv.DictReader(_f)})
+
+def _values(table: str, column: str) -> list[str]:
+    """The allowed values of one column, read from the seed so the prompts follow the data."""
+    with open(SEED / f"{table}.csv", encoding="utf-8", newline="") as f:
+        return sorted({row[column] for row in csv.DictReader(f)})
+
+
+SPECIALTIES = _values("practices", "specialty")
+DISTRICTS = _values("practices", "district")
+TOPICS = _values("rules", "topic")
+CHANNELS = _values("waits", "channel")
+REDRAFT = "\nThis query returned 0 rows:\n{sql}\nRelax the district or name filter (LIKE or IN); keep the specialty filter."
 
 PLANNER = (
     "You help statutory-insurance patients in Berlin reach a specialist appointment fast. "
@@ -31,11 +41,17 @@ PLANNER = (
 SQL = (
     "Write one read-only SQL SELECT for the question, using only these tables and columns:\n"
     + SCHEMA
-    + "Values: specialty is lower-case English (dermatology, orthopaedics, cardiology, ENT, ...); district is a "
-    "Berlin borough such as Mitte or Treptow-Köpenick, never 'Berlin'; accepts_new_patients and online_booking "
-    "are the strings 'yes' or 'no'; days_to_appointment is a number; channel is text such as 'open consultation' "
-    "or 'phone'. Join waits to practices on practice_id. Prefer simple filters (lower(specialty) = '...') over "
-    "subqueries.\n"
+    + "Values, spelled exactly like this: specialty is one of "
+    + ", ".join(f"'{v}'" for v in SPECIALTIES)
+    + "; district is one of "
+    + ", ".join(f"'{v}'" for v in DISTRICTS)
+    + " (never 'Berlin'; Köpenick is 'Treptow-Köpenick'); rules topic is one of "
+    + ", ".join(f"'{v}'" for v in TOPICS)
+    + "; channel is one of "
+    + ", ".join(f"'{v}'" for v in CHANNELS)
+    + "; accepts_new_patients and online_booking "
+    "are the strings 'yes' or 'no'; days_to_appointment is a number. Join waits to practices on practice_id. "
+    "Prefer simple filters (lower(specialty) = '...') over subqueries.\n"
     "Use the schema-qualified table names exactly as shown and give each table a short alias "
     "(FROM FT_PRACTICES.practices p JOIN FT_WAITS.waits w ...); qualify columns with the alias only, "
     "never as schema.table.column. No semicolon. "
@@ -79,18 +95,23 @@ def investigate(question: str, llm, source=None, memory=None, search=None, on_st
 
         evidence, queries = {}, []
         for q, draft_sql in zip(questions, drafts):
+            attempts = []  # a query that found nothing, before its one redraft
             try:
-                sql = draft_sql.result()
+                sql = canonical_sql(draft_sql.result())
                 rows = source.query(sql)
+                if not rows:
+                    attempts.append({"sql": sql, "rows": 0})
+                    sql = canonical_sql(llm.json("sql", SQL, _for_specialty(q, specialty) + REDRAFT.format(sql=sql))["sql"])
+                    rows = source.query(sql)
             except Exception as exc:  # a bad query is recorded, never fatal
-                queries.append({"question": q, "error": f"{type(exc).__name__}: {exc}"[:300]})
+                queries.append({"question": q, "error": f"{type(exc).__name__}: {exc}"[:300], **({"attempts": attempts} if attempts else {})})
                 continue
             ids = []
             for row in rows:
                 eid = f"E{len(evidence) + 1}"
                 evidence[eid] = {"sql": sql, "row": row}
                 ids.append(eid)
-            queries.append({"question": q, "sql": sql, "evidence": ids})
+            queries.append({"question": q, "sql": sql, "evidence": ids, **({"attempts": attempts} if attempts else {})})
         _add(trace, notify, {"step": "query", "queries": queries})
 
         if web is not None:
