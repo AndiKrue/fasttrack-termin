@@ -169,3 +169,40 @@ class ParallelTests(unittest.TestCase):
             started = time.monotonic()
             investigate("knee, Köpenick", Slow(), LocalSource(), LocalStore(Path(d) / "m.jsonl"), search=False)
             self.assertLess(time.monotonic() - started, 0.55)  # two 0.3 s drafts overlap
+
+
+class SpecialtyTests(unittest.TestCase):
+    """A cardiology question must never be answered with dermatology waiting data."""
+
+    class Cardio:
+        def __init__(self, rows_for):
+            self.rows_for, self.sql_prompts = rows_for, []
+
+        def json(self, role, system, user, max_tokens=2048, think=None):
+            if role == "planner":
+                return {"questions": ["cardiology waiting times in Pankow"], "specialty": "Cardiology"}
+            if role == "sql":
+                self.sql_prompts.append(user)
+                # ignores the filter it was told to use, like the live run did
+                return {"sql": "SELECT p.name, w.channel, w.days_to_appointment FROM FT_PRACTICES.practices p "
+                               f"JOIN FT_WAITS.waits w ON p.practice_id = w.practice_id WHERE p.specialty = '{self.rows_for}'"}
+            if role == "answer":
+                return {"routes": [{"route": "Phone the practice", "expected_days": 45, "why": "x", "evidence": ["E1"]}]}
+            return {"keep": [0]}  # a lenient verifier keeps it
+
+    def run_case(self, rows_for):
+        llm = self.Cardio(rows_for)
+        with tempfile.TemporaryDirectory() as d:
+            out = investigate("Kardiologe in Pankow", llm, LocalSource(), LocalStore(Path(d) / "m.jsonl"), search=False)
+        return llm, out
+
+    def test_dermatology_rows_cited_for_cardiology_are_dropped(self):
+        llm, out = self.run_case("dermatology")
+        self.assertIn("lower(p.specialty) = 'cardiology'", llm.sql_prompts[0])
+        self.assertEqual(out["routes"], [])
+        self.assertEqual(out["dropped"][0]["reason"], "cites dermatology rows, but the patient needs cardiology")
+        self.assertEqual(out["trace"]["steps"][0]["specialty"], "cardiology")
+
+    def test_cardiology_rows_are_kept(self):
+        _, out = self.run_case("cardiology")
+        self.assertEqual([r["route"] for r in out["routes"]], ["Phone the practice"])
