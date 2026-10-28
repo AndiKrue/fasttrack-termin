@@ -105,6 +105,18 @@ $("locate").onclick = () => {
   );
 };
 
+// Draft (WO-FT-ASK-01): with FT_ASK_AUTH=on the server answers 401 without the access key. The page
+// then asks for it once and keeps it for this tab only (never in the URL, so never in a log line).
+function accessKey(ask) {
+  let key = null;
+  try { key = sessionStorage.getItem("ft-key"); } catch (e) { /* storage blocked */ }
+  if (ask) {
+    key = window.prompt("This app needs its access key.") || null;
+    try { if (key) sessionStorage.setItem("ft-key", key); } catch (e) { /* storage blocked */ }
+  }
+  return key ? { "X-FT-Key": key } : {};
+}
+
 // ---- timeline ----
 function resetTimeline() {
   const ol = $("steps");
@@ -397,11 +409,13 @@ async function ask() {
   $("results").replaceChildren();
   resetTimeline();
   try {
-    const res = await fetch("/ask/stream", {
+    const post = (key) => fetch("/ask/stream", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...key },
       body: JSON.stringify({ question }),
     });
+    let res = await post(accessKey(false));
+    if (res.status === 401) res = await post(accessKey(true));
     if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
     const reader = res.body.getReader();
     const dec = new TextDecoder();

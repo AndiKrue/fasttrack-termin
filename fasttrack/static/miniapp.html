@@ -318,7 +318,9 @@ async function ask() {
   busy = true; $("out").replaceChildren(); resetTimeline();
   if (inTelegram) tg.MainButton.showProgress(); else $("fallback").disabled = true;
   try {
-    const r = await fetch("/ask/stream", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question }) });
+    const headers = { "Content-Type": "application/json" };
+    if (tg && tg.initData) headers["X-Telegram-Init-Data"] = tg.initData; // checked only when FT_ASK_AUTH=on
+    const r = await fetch("/ask/stream", { method: "POST", headers, body: JSON.stringify({ question }) });
     const reader = r.body.getReader(), dec = new TextDecoder(); let buf = "";
     for (;;) {
       const { value, done } = await reader.read(); if (done) break;

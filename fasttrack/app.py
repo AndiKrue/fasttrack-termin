@@ -13,6 +13,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from .env import load_env
 from .agent import investigate
+from .auth import allowed
 from .llm import open_llm
 
 # A blank NDJSON line this often while a step runs: the Cloudflare quick tunnel drops a stream that
@@ -95,6 +96,10 @@ class Handler(BaseHTTPRequestHandler):
         return str(json.loads(self.rfile.read(length) or b"{}").get("question", ""))[:2000]
 
     def do_POST(self):
+        if self.path in ("/ask", "/ask/stream") and not allowed(self.headers):
+            body = {"error": "Questions are accepted only from the FastTrack Telegram mini app or with the access key."}
+            self._send(401, json.dumps(body).encode(), "application/json")
+            return
         if self.path == "/ask/stream":
             # NDJSON: one {"step": ...} line per agent step, then {"result": ...}
             self.send_response(200)
