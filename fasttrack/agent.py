@@ -141,8 +141,12 @@ def investigate(question: str, llm, source=None, memory=None, search=None, on_st
                 _add(trace, notify, {"step": "web", "error": f"{type(exc).__name__}: {exc}"[:300]})
     trace["web"] = getattr(search, "name", None)
 
-    recalled = memory.recall(question)
-    _add(trace, notify, {"step": "recall", "records": len(recalled)})
+    try:  # memory helps the answer but can never fail it
+        recalled = memory.recall(question)
+        _add(trace, notify, {"step": "recall", "records": len(recalled)})
+    except Exception as exc:
+        recalled = []
+        _add(trace, notify, {"step": "recall", "error": f"{type(exc).__name__}: {exc}"[:300]})
 
     rows_text = json.dumps({k: v["row"] for k, v in evidence.items()}, ensure_ascii=False)
     prior = json.dumps(recalled, ensure_ascii=False)
@@ -162,8 +166,11 @@ def investigate(question: str, llm, source=None, memory=None, search=None, on_st
         dropped, notes = dropped + again, notes + more
         _add(trace, notify, {"step": "verify", "kept": len(kept), "dropped": len(routes) - len(kept), "notes": more, "revision": True})
 
-    for r in kept:
-        memory.remember({"run_id": run_id, "at": stamp(), "question": question, "route": r["route"], "why": r["why"], "evidence": {e: evidence[e] for e in r["evidence"]}})
+    try:  # a verified answer is returned even when storing it fails
+        for r in kept:
+            memory.remember({"run_id": run_id, "at": stamp(), "question": question, "route": r["route"], "why": r["why"], "evidence": {e: evidence[e] for e in r["evidence"]}})
+    except Exception as exc:
+        _add(trace, notify, {"step": "remember", "error": f"{type(exc).__name__}: {exc}"[:300]})
 
     return {
         "run_id": run_id,

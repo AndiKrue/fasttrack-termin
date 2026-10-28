@@ -212,7 +212,7 @@ The page contains an example question about an orthopaedics appointment in Köpe
 
 ### Fallbacks and tests
 
-Without `ZETARIS_JDBC_JAR`, the agent uses an in-memory SQLite stand-in with the same three logical schemas and seed files. When `ZETARIS_JDBC_JAR` is set but Lightning does not accept the connection, the failure is logged and the run uses the same stand-in; the footer then shows `local-sqlite`. H-MEM is selected when its bridge and local `tsx` executable are available. Set `FT_MEMORY=local`, or omit the bridge installation, to use `runs/memory.jsonl` instead. A runtime H-MEM bridge error is reported; it does not silently switch to JSONL.
+Without `ZETARIS_JDBC_JAR`, the agent uses an in-memory SQLite stand-in with the same three logical schemas and seed files. When `ZETARIS_JDBC_JAR` is set but Lightning does not accept the connection, the failure is logged and the run uses the same stand-in; the footer then shows `local-sqlite`. H-MEM is selected when its bridge and local `tsx` executable are available. Set `FT_MEMORY=local`, or omit the bridge installation, to use `runs/memory.jsonl` instead. A runtime H-MEM bridge error appears in the trace as a `recall` or `remember` error and the verified answer is still returned; it does not silently switch to JSONL. The bridge spells umlauts out (ä→ae, ö→oe, ü→ue, ß→ss) before storing and querying, because the H-MEM tokenizer keeps only a–z and 0–9; memories stored before this change keep their old spelling.
 
 Without `FIRECRAWL_API_KEY`, web search is disabled. Web search failures appear in the trace; the remaining evidence workflow continues.
 

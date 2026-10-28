@@ -3,6 +3,11 @@
 // Meterless H-MEM behind JSON on stdin/stdout. Persistent: state.json + ledger.jsonl in FT_HMEM_DIR.
 import { HMEM } from "./hmem/src/index.ts";
 
+// H-MEM's tokenizer keeps only [a-z0-9], so "Köpenick" would become "penick". Spell umlauts out first,
+// for stored memories and queries alike, so "Köpenick" and "Koepenick" meet. (hmem/src stays unedited.)
+const norm = (text: string) =>
+  text.normalize("NFC").toLowerCase().replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss");
+
 const chunks: Buffer[] = [];
 for await (const c of process.stdin) chunks.push(c as Buffer);
 const req = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
@@ -12,7 +17,7 @@ if (req.op === "remember") {
   const r = req.record;
   const m = hmem.add({
     // The patient's question is stored with the route: recall matches new questions against it.
-    content: `${r.question} -> ${r.route}: ${r.why}`,
+    content: norm(`${r.question} -> ${r.route}: ${r.why}`),
     type: "factual",
     layer: "working",
     tags: ["fasttrack", `run:${r.run_id}`],
@@ -22,7 +27,7 @@ if (req.op === "remember") {
   process.stdout.write(JSON.stringify({ id: m.id, ledger: hmem.ledger.history(m.id).map((e) => e.action) }));
 } else if (req.op === "recall") {
   // H-MEM's default threshold (0.35 after confidence) drops paraphrased questions; 0.2 keeps related ones.
-  const q = hmem.query(String(req.query ?? ""), { topN: Number(req.limit ?? 5), threshold: Number(process.env.FT_HMEM_THRESHOLD ?? 0.2) });
+  const q = hmem.query(norm(String(req.query ?? "")), { topN: Number(req.limit ?? 5), threshold: Number(process.env.FT_HMEM_THRESHOLD ?? 0.2) });
   process.stdout.write(
     JSON.stringify({
       records: q.memories.map((x) => ({
